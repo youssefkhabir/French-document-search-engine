@@ -272,7 +272,26 @@ Two items move to Phase 4's typo correction:
   `infirmier`), and Alloprof questions often lack accents
 - possibly **LaTeX** left in Alloprof pages, if Phase 5 shows it hurts
 
-## 2.11 Impact on the phases
+## 2.11 Phase 3: done
+
+Semantic branch with BGE-M3, reviewed in `docs/phase3_review.md`. The index now holds both
+collections: 2,360 documents → 10,295 chunks, embedded in 214 s on the RTX 2060.
+
+| Dev questions (300) | Recall@10 | MRR@10 |
+|---|---|---|
+| TF-IDF | 0.618 | 0.393 |
+| BM25 | 0.582 | 0.379 |
+| **Semantic** | **0.733** | **0.553** |
+
+Relevant page in the top 10 from the semantic mode only: 65 questions; BM25 only: 18. This
+is the gain the Phase 4 hybrid has to capture.
+
+`EMBED_MAX_TOKENS` raised to 1,024: Alloprof's LaTeX made 7% of chunks exceed 512 tokens.
+It made no measurable difference to the results, but no text is lost now.
+
+The team corpus (`data/corpus/divers/`) has its first 10 documents.
+
+## 2.12 Impact on the phases
 
 | Phase | Change |
 |---|---|

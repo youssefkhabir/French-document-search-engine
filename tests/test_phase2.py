@@ -98,7 +98,7 @@ def test_snippet_without_match_starts_at_the_beginning():
 @pytest.fixture(scope="module")
 def index_dir(tmp_path_factory):
     d = tmp_path_factory.mktemp("index")
-    build_index(CORPUS, d)
+    build_index(CORPUS, d, embed=False)   # lexical only: no model to load
     return d
 
 
@@ -127,6 +127,8 @@ def test_search_filters(index_dir):
 def test_search_no_match_and_unready_mode(index_dir):
     assert search("xyzzyq", mode="bm25", index_dir=index_dir)["results"] == []
     with pytest.raises(NotImplementedError):
+        search("test", mode="hybrid", index_dir=index_dir)
+    with pytest.raises(ValueError):                    # built with embed=False
         search("test", mode="semantic", index_dir=index_dir)
     with pytest.raises(ValueError):
         search("test", mode="nope", index_dir=index_dir)

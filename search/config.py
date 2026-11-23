@@ -29,6 +29,11 @@ EMBED_PREFIXES = {
     "intfloat/multilingual-e5-small": ("query: ", "passage: "),
 }
 E5_MAX_TOKENS = 480
+# Input cap for every embedding model (capped again by the model's own limit: 512 for e5).
+# Chunks are ~370 tokens, but Alloprof's LaTeX-heavy pages reach 600-900: at 512, 7% of
+# chunks lost ~20% of their text. 1,024 covers 99% of them.
+EMBED_MAX_TOKENS = 1024
+EMBED_BATCH = 16         # fits BGE-M3 fp16 on a 6 GB GPU
 
 RERANK_MODEL = "BAAI/bge-reranker-v2-m3"
 

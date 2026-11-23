@@ -110,6 +110,20 @@ Phase 2 adds the lexical branch:
 
 With it the Alloprof build takes about 2 minutes, almost all of it spaCy.
 
+Phase 3 adds the semantic branch:
+- `index/embeddings.npy`: one L2-normalized vector per chunk (BGE-M3: 1,024 dimensions,
+  fp16 on GPU, input capped at 512 tokens)
+- `index/embeddings.json`: which model built them. Queries are always embedded with that
+  model, so an index built with BGE-M3 works whatever `EMBED_MODEL` says
+
+```powershell
+python scripts/build_index.py --no-embed                               # lexical only, no GPU
+python scripts/build_index.py --model intfloat/multilingual-e5-small   # small model
+```
+
+Build the BGE-M3 index on the GPU machine and share the `index/` folder: a CPU machine
+then only embeds the queries.
+
 Optional per-folder metadata: a `.metadata.json` in any corpus folder can set a file's
 title and extra fields, e.g. `{"page.txt": {"title": "Les fractions", "subject": "math"}}`.
 
@@ -140,9 +154,10 @@ python -m pytest
 streamlit run app.py
 ```
 
-The page searches in TF-IDF or BM25 mode, with filters by collection and file type. It can
-open any index folder of the project (`index/`, or `index_test/` built with `--index`).
-The other modes arrive in Phases 3 and 4.
+The page searches in TF-IDF, BM25 or semantic mode, with filters by collection and file
+type. It can open any index folder of the project (`index/`, or `index_test/` built with
+`--index`). The semantic mode needs an index built with embeddings. Hybrid and word2vec
+arrive in Phase 4.
 
 ## Layout
 

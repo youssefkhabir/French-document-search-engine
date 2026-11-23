@@ -1,6 +1,7 @@
 """Streamlit interface. Run: streamlit run app.py
 
-Phase 2: lexical modes (TF-IDF, BM25), collection and file-type filters, snippets.
+Phases 2-3: TF-IDF, BM25 and semantic (BGE-M3) modes, collection and file-type filters,
+snippets.
 The page calls engine.search(), the same function the evaluation uses.
 """
 import html
@@ -9,14 +10,15 @@ from pathlib import Path
 import streamlit as st
 
 from search import config
-from search.engine import MODES_READY, load_index, search
+from search import semantic
+from search.engine import load_index, search
 from search.lexical import lexical_prep
 
 st.set_page_config(page_title="Moteur de recherche documentaire", layout="wide")
 
 MODE_LABELS = {"TF-IDF": "tfidf", "BM25": "bm25", "Sémantique": "semantic",
                "Hybride": "hybrid", "Word2vec (moyenne)": "word2vec"}
-MODE_PHASE = {"semantic": 3, "hybrid": 4, "word2vec": 4}
+MODE_PHASE = {"hybrid": 4, "word2vec": 4}
 FORMAT_LABELS = {"pdf": "PDF", "docx": "Word", "txt": "Texte", "html": "HTML", "csv": "CSV"}
 SUBJECT_LABELS = {"chemistry": "Chimie", "contemporary_world": "Monde contemporain",
                   "english": "Anglais", "financial_ed": "Éducation financière",
@@ -36,7 +38,10 @@ def index_dirs() -> list[Path]:
 def get_index(path: str, stamp: float) -> dict:
     """Cached per index folder; `stamp` (meta.json mtime) reloads it after a rebuild."""
     lexical_prep("préchauffage")  # load spaCy now, not on the first query
-    return load_index(Path(path))
+    idx = load_index(Path(path))
+    if idx["embeddings"] is not None:  # load the embedding model now too
+        semantic.load_model(idx["embeddings"][1]["model"])
+    return idx
 
 
 def highlight(snippet: str, spans: list[tuple[int, int]]) -> str:
@@ -100,23 +105,30 @@ with st.sidebar:
         st.dataframe({"Collection": [collection_label(c) for c in docs.index],
                       "Documents": docs.to_list(), "Passages": n_chunks.to_list()},
                      hide_index=True)
+        emb = meta.get("embeddings")
+        emb_text = (f"plongements {emb['model'].split('/')[-1]} ({emb['dim']} d)" if emb
+                    else "sans plongements")
         st.caption(f"{meta['n_documents']} documents · {meta['n_chunks']} passages · "
-                   f"{meta.get('lexical', {}).get('vocabulary', '?')} termes · "
+                   f"{meta.get('lexical', {}).get('vocabulary', '?')} termes · {emb_text} · "
                    f"construit le {meta['built_at'].replace('T', ' à ')}")
 
 query = st.text_input("Recherche", placeholder="ex. : comment calculer l'aire d'un triangle")
 
 if query.strip():
-    if mode not in MODES_READY:
-        st.info(f"Le mode « {mode_label} » arrive en phase {MODE_PHASE[mode]}. "
-                "Choisissez TF-IDF ou BM25.")
+    if mode not in idx["modes"]:
+        if mode in MODE_PHASE:
+            st.info(f"Le mode « {mode_label} » arrive en phase {MODE_PHASE[mode]}.")
+        else:
+            st.info(f"Cet index n'a pas de plongements : le mode « {mode_label} » n'est pas "
+                    "disponible. Reconstruisez-le sans `--no-embed`.")
         st.stop()
 
     r = search(query, mode=mode, alpha=alpha, top_k=top_k, collections=chosen_collections,
                formats=chosen_formats, index_dir=index_dir)
     total_ms = sum(r["timings"].values())
-    st.caption(f"{len(r['results'])} documents · {r['n_chunks_matched']} passages "
-               f"correspondants · {total_ms:.0f} ms · forme lexicale : `{r['query_lex'] or '∅'}`")
+    matched = ("passages comparés" if mode == "semantic" else "passages correspondants")
+    st.caption(f"{len(r['results'])} documents · {r['n_chunks_matched']} {matched} · "
+               f"{total_ms:.0f} ms · forme lexicale : `{r['query_lex'] or '∅'}`")
 
     if not r["results"]:
         st.warning("Aucun document ne contient les termes de la requête."

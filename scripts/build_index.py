@@ -4,6 +4,8 @@ Usage:
     python scripts/build_index.py                                  # data/corpus -> index/
     python scripts/build_index.py --corpus tests/fixtures/corpus   # synthetic test corpus
     python scripts/build_index.py --show 3                         # also print 3 chunks
+    python scripts/build_index.py --no-embed                       # lexical only, no GPU needed
+    python scripts/build_index.py --model intfloat/multilingual-e5-small   # another model
 """
 import argparse
 import sys
@@ -19,11 +21,18 @@ def main() -> None:
     p.add_argument("--corpus", default=str(config.CORPUS_DIR))
     p.add_argument("--index", default=str(config.INDEX_DIR))
     p.add_argument("--show", type=int, default=0, help="print the first N chunks")
+    p.add_argument("--no-embed", action="store_true", help="skip the embeddings (Phase 3)")
+    p.add_argument("--model", default=None, help=f"embedding model (default {config.EMBED_MODEL})")
     args = p.parse_args()
 
-    s = build_index(Path(args.corpus), Path(args.index))
+    s = build_index(Path(args.corpus), Path(args.index), embed=not args.no_embed,
+                    embed_model=args.model, show_progress=True)
     print(f"{s['n_documents']} documents, {s['n_pages']} pages -> {s['n_chunks']} chunks "
           f"in {s['seconds']} s")
+    e = s["embeddings"]
+    if e:
+        print(f"  embeddings: {e['model']} on {e['device']}, {e['n']} x {e['dim']} in {e['seconds']} s "
+              f"({e['n_truncated']} chunks over {e['max_tokens']} tokens truncated)")
     for path, reason in s["skipped"]:
         print(f"  skipped {path}: {reason}")
     for doc, lines in s["removed_headers_footers"].items():

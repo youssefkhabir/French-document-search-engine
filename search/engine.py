@@ -10,13 +10,13 @@ import pandas as pd
 
 import numpy as np
 
-from search import config, lexical
+from search import config, lexical, semantic
 from search.chunk import chunk_pages
 from search.clean import clean_text, remove_repeated_lines
 from search.extract import extract_folder
 
 MODES = ("tfidf", "bm25", "semantic", "hybrid", "word2vec")  # word2vec = optional S6
-MODES_READY = ("tfidf", "bm25")                               # grows with each phase
+MODES_READY = ("tfidf", "bm25", "semantic")                   # grows with each phase
 SNIPPET_WORDS = 45
 CHUNK_COLUMNS = ["chunk_id", "doc_id", "collection", "format", "title", "page", "n_words",
                  "text_raw", "text_index", "meta"]
@@ -61,11 +61,13 @@ def ingest(folder: Path) -> tuple[pd.DataFrame, list[tuple[str, str]], dict]:
     return chunks, skipped, report
 
 
-def build_index(folder: Path | None = None, index_dir: Path | None = None) -> dict:
+def build_index(folder: Path | None = None, index_dir: Path | None = None, embed: bool = True,
+                embed_model: str | None = None, show_progress: bool = False) -> dict:
     """extract -> clean -> chunk -> lexical forms -> TF-IDF, BM25, embeddings,
     vocabulary (+ optional word2vec) -> save to index/. Returns summary counts.
 
-    Phase 1 implements the first step and writes chunks.parquet, skipped.json, meta.json.
+    `embed=False` skips the embeddings (quick lexical-only build); `embed_model` overrides
+    config.EMBED_MODEL (the tests use the small e5 model).
     """
     folder = Path(folder or config.CORPUS_DIR)
     index_dir = Path(index_dir or config.INDEX_DIR)
@@ -88,7 +90,18 @@ def build_index(folder: Path | None = None, index_dir: Path | None = None) -> di
     lexical.save_bm25(lexical.build_bm25(chunks["text_lex"].tolist()), index_dir / "bm25")
     lexical_seconds = round(time.perf_counter() - t_lex, 2)
 
-    # Phases 3-4 add: embeddings, vocabulary, word2vec.
+    # Phase 3 · embeddings. A lexical-only build removes stale ones so they can't be
+    # paired with chunks they don't belong to.
+    embeddings_info = None
+    if embed:
+        E, embeddings_info = semantic.build_embeddings(chunks["text_index"].tolist(), embed_model,
+                                                       show_progress)
+        semantic.save_embeddings(E, embeddings_info, index_dir)
+    else:
+        for name in ("embeddings.npy", "embeddings.json"):
+            (index_dir / name).unlink(missing_ok=True)
+
+    # Phase 4 adds: vocabulary, word2vec.
 
     meta = {
         "built_at": datetime.now().isoformat(timespec="seconds"),
@@ -101,6 +114,7 @@ def build_index(folder: Path | None = None, index_dir: Path | None = None) -> di
         "chunk_words": {"max": config.CHUNK_MAX_WORDS, "overlap": config.CHUNK_OVERLAP_WORDS},
         "title_prefix": config.CHUNK_TITLE_PREFIX,
         "lexical": {"vocabulary": len(vectorizer.vocabulary_), "seconds": lexical_seconds},
+        "embeddings": embeddings_info,
         "seconds": round(time.perf_counter() - t0, 2),
     }
     _INDEX_CACHE.pop(str(index_dir.resolve()), None)
@@ -115,7 +129,8 @@ _INDEX_CACHE: dict[str, dict] = {}
 def load_index(index_dir: Path | None = None) -> dict:
     """Load chunks and the lexical indexes once per process (reloaded if rebuilt).
 
-    Returns {"chunks", "meta", "tfidf": (vectorizer, matrix), "bm25"}.
+    Returns {"chunks", "meta", "tfidf": (vectorizer, matrix), "bm25",
+             "embeddings": (E, info) or None, "modes": modes this index can serve}.
     """
     index_dir = Path(index_dir or config.INDEX_DIR)
     key = str(index_dir.resolve())
@@ -138,7 +153,12 @@ def load_index(index_dir: Path | None = None) -> dict:
         "meta": json.loads(meta_path.read_text(encoding="utf-8")),
         "tfidf": lexical.load_tfidf(index_dir / "tfidf.pkl"),
         "bm25": lexical.load_bm25(index_dir / "bm25"),
+        "embeddings": semantic.load_embeddings(index_dir),   # (E, info) or None
     }
+    if loaded["embeddings"] is not None and len(loaded["embeddings"][0]) != len(chunks):
+        raise ValueError(f"embeddings in {index_dir} don't match chunks.parquet: rebuild the index")
+    loaded["modes"] = tuple(m for m in MODES_READY
+                            if m != "semantic" or loaded["embeddings"] is not None)
     _INDEX_CACHE[key] = loaded
     return loaded
 
@@ -170,8 +190,10 @@ def search(query: str, mode: str = "hybrid", alpha: float = 0.5, rerank: bool = 
            index_dir: Path | None = None) -> dict:
     """correct -> branch search -> fusion -> rerank -> group by document.
 
-    Phase 2 implements the lexical modes ("tfidf", "bm25"); typo correction, fusion,
-    reranking and WordNet come in Phases 3-4 and are ignored until then.
+    Implemented: "tfidf", "bm25" (Phase 2) and "semantic" (Phase 3). Typo correction,
+    fusion, reranking and WordNet come in Phase 4 and are ignored until then.
+    In semantic mode `n_chunks_matched` is the number of chunks scored (every chunk the
+    filters allow): cosine similarity has no "no match".
 
     Returns {"query", "query_lex", "corrected_query", "corrections", "mode", "n_chunks_matched",
         "results": [{"doc_id", "title", "collection", "format", "page", "score", "snippet",
@@ -193,16 +215,27 @@ def search(query: str, mode: str = "hybrid", alpha: float = 0.5, rerank: bool = 
     query_lex = lexical.lexical_prep(query)
     timings["prep"] = round((time.perf_counter() - t) * 1000, 1)
 
+    if mode == "semantic":
+        if idx["embeddings"] is None:
+            raise ValueError("this index was built without embeddings: rebuild it without --no-embed")
+        E, info = idx["embeddings"]
+        t = time.perf_counter()
+        q_vec = semantic.embed_query(semantic.load_model(info["model"]), query, info["model"])
+        timings["embed"] = round((time.perf_counter() - t) * 1000, 1)
+
     t = time.perf_counter()
     mask = _filter_mask(chunks, collections, formats)
-    # Lexical scoring is cheap: rank every matching chunk, so a long document with many
-    # matching chunks cannot push the other documents out of the top k.
+    # Scoring every chunk is cheap in all three modes (a sparse product or one 7,000 × 1,024
+    # matrix-vector product). Ranking them all means a long document with many matching
+    # chunks cannot push the other documents out of the top k.
     n_all = len(chunks)
     if mode == "tfidf":
         vectorizer, matrix = idx["tfidf"]
         hits = lexical.search_tfidf(query_lex, vectorizer, matrix, n_all, mask)
-    else:
+    elif mode == "bm25":
         hits = lexical.search_bm25(query_lex, idx["bm25"], n_all, mask)
+    else:
+        hits = semantic.search_semantic(q_vec, E, n_all, mask)
     timings["search"] = round((time.perf_counter() - t) * 1000, 1)
 
     t = time.perf_counter()
@@ -215,7 +248,8 @@ def search(query: str, mode: str = "hybrid", alpha: float = 0.5, rerank: bool = 
             "doc_id": c["doc_id"], "title": c["title"], "collection": c["collection"],
             "format": c["format"], "page": int(c["page"]), "score": round(score, 4),
             "snippet": text, "highlights": spans, "chunk_id": c["chunk_id"], "meta": c["meta"],
-            "rank_bm25": rank if mode == "bm25" else None, "rank_semantic": None,
+            "rank_bm25": rank if mode == "bm25" else None,
+            "rank_semantic": rank if mode == "semantic" else None,
         })
     timings["snippets"] = round((time.perf_counter() - t) * 1000, 1)
 
