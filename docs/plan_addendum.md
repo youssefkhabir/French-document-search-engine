@@ -241,7 +241,27 @@ optional extra.
 - Result card: collection, file type, and, for Alloprof, the subject.
 - The corpus panel shows counts per collection.
 
-## 2.9 Impact on the phases
+## 2.9 Phase 1 follow-up: done
+
+Implemented and tested (38 tests):
+
+| Item | Result |
+|---|---|
+| `scripts/fetch_alloprof.py` | 2,350 pages in 12 subjects; **2,281 test** questions (35 dropped: all their relevant pages are in the excluded "English" subject) and **300 dev** questions sampled from train (seed 42); 3,297 judgments |
+| Index on Alloprof | 2,350 documents → **7,074 chunks** in ~5 s; median chunk 236 words; longest page (7,525 words) → 36 chunks |
+| Folder metadata | Optional `.metadata.json` per folder: title + extra fields (`meta`), e.g. the Alloprof subject |
+| Chunk record | Gains `collection` (first sub-folder), `format`, `text_index`, `meta` |
+| Title prefix | `CHUNK_TITLE_PREFIX = True`: `text_index = title + "\n" + text_raw`; `text_raw` unchanged for snippets |
+| Title clean-up | Junk metadata titles (*Microsoft Word - …*, paths, *untitled*) fall back to the file name; a TXT file's first line becomes the title when it stands alone |
+| Fixtures | `divers/`: 11-page report, DOCX procedure with a table, news article, scientific abstract, decree excerpt, 2 CSVs |
+
+**Dataset finding: Alloprof pages are flat text.** No page has paragraph breaks, and
+headings run into the text without punctuation (*"…Univers vivant Les systèmes
+biologiques L'anatomie…"*). Chunking therefore relies on sentence boundaries, with
+250-word windows where punctuation is missing. Snippets from Alloprof will show no
+paragraph structure. This is a property of the dataset, to mention in the report.
+
+## 2.10 Impact on the phases
 
 | Phase | Change |
 |---|---|

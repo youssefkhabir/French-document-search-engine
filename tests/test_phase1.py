@@ -10,7 +10,7 @@ import pytest
 from search.chunk import chunk_document, split_sentences
 from search.clean import clean_text, remove_repeated_lines
 from search.engine import ingest
-from search.extract import SkipFile, extract_file, extract_folder
+from search.extract import SkipFile, clean_title, extract_file, extract_folder
 
 CORPUS = Path(__file__).parent / "fixtures" / "corpus"
 
@@ -153,6 +153,62 @@ def test_csv_without_header_and_single_column(tmp_path):
         extract_file(tmp_path / "c.csv")
 
 
+@pytest.mark.parametrize("title, expected", [
+    ("Microsoft Word - cv_final.docx", "mon fichier"),
+    ("C:\\Users\\x\\rapport.pdf", "mon fichier"),
+    ("untitled", "mon fichier"),
+    ("", "mon fichier"),
+    ("Développeur backend Python (H/F)", "Développeur backend Python (H/F)"),  # "/" is not a path
+    ("  Rapport   annuel ", "Rapport annuel"),
+])
+def test_clean_title(title, expected):
+    assert clean_title(title, Path("mon_fichier.pdf")) == expected
+
+
+def test_txt_title_from_first_line_only_when_it_stands_alone():
+    assert extract_file(CORPUS / "divers" / "resume_vegetalisation_ecoles.txt")[0]["title"] \
+        .startswith("Effet de la végétalisation")
+    assert extract_file(CORPUS / "cv" / "cv_infirmiere.txt")[0]["title"] == "cv infirmiere"
+
+
+def test_pdf_junk_metadata_title_falls_back_to_file_name():
+    pages = extract_file(CORPUS / "divers" / "decret_horaires_dechetteries.pdf")
+    assert pages[0]["title"] == "decret horaires dechetteries"
+
+
+def test_docx_table_rows_kept_in_order():
+    text = extract_file(CORPUS / "divers" / "procedure_carte_identite.docx")[0]["text"]
+    assert "Perte ou vol | Déclaration de perte ou de vol" in text
+    assert text.index("Étapes") < text.index("Situation | Pièces à fournir") \
+        < text.index("Le délai de fabrication")
+
+
+def test_folder_metadata_and_collection(tmp_path):
+    folder = tmp_path / "alloprof" / "math"
+    folder.mkdir(parents=True)
+    (folder / "p1.txt").write_text("Une fraction est un nombre.", encoding="utf-8")
+    (folder / "p2.txt").write_text("Le théorème de Pythagore.", encoding="utf-8")
+    (folder / ".metadata.json").write_text(
+        '{"p1.txt": {"title": "Les fractions", "subject": "math"}}', encoding="utf-8")
+    (tmp_path / "racine.txt").write_text("Un fichier à la racine.", encoding="utf-8")
+    pages, skipped = extract_folder(tmp_path)
+    by_id = {p["doc_id"]: p for p in pages}
+    assert skipped == []                                       # .metadata.json is not indexed
+    assert by_id["alloprof/math/p1.txt"]["title"] == "Les fractions"
+    assert by_id["alloprof/math/p1.txt"]["meta"] == {"subject": "math"}
+    assert by_id["alloprof/math/p2.txt"]["meta"] == {}        # file not listed: no metadata
+    assert by_id["alloprof/math/p1.txt"]["collection"] == "alloprof"
+    assert by_id["racine.txt"]["collection"] == ""
+
+
+def test_title_prefix_in_index_text_only():
+    pages = [{"doc_id": "d", "title": "Rapport", "page": 1, "text": _sentence(1)}]
+    on = chunk_document(pages, title_prefix=True)[0]
+    off = chunk_document(pages, title_prefix=False)[0]
+    assert on["text_index"] == f"Rapport\n{_sentence(1)}" and on["text_raw"] == _sentence(1)
+    assert off["text_index"] == off["text_raw"] == _sentence(1)
+
+
 def test_extract_folder_reports_unsupported(tmp_path):
     (tmp_path / "a.txt").write_text("Bonjour.", encoding="utf-8")
     (tmp_path / "b.xlsx").write_bytes(b"x")
@@ -167,7 +223,8 @@ def test_extract_folder_reports_unsupported(tmp_path):
 
 def test_ingest_fixture_corpus():
     chunks, skipped, report = ingest(CORPUS)
-    assert report["n_documents"] == 17
+    assert report["n_documents"] == 22
+    assert report["per_collection"] == {"cv": 9, "divers": 7, "offres": 6}
     assert [p for p, _ in skipped] == ["cv/cv_scanne_agent_accueil.pdf"]
     text = "\n".join(chunks["text_raw"])
     for noise in ["Page 1 / 3", "Offre n° 2026-114", "thomas.fictif@example.org", "analytics"]:
@@ -176,3 +233,16 @@ def test_ingest_fixture_corpus():
         assert joined in text
     assert (chunks["n_words"] > 0).all()
     assert chunks.groupby("doc_id").size()["offres/offre_rssi_ministere.pdf"] == 2
+    assert set(chunks.columns) >= {"collection", "format", "text_index", "meta"}
+
+
+def test_long_report_chunks():
+    chunks, _, report = ingest(CORPUS)
+    rep = chunks[chunks.doc_id == "divers/rapport_activite_2025.pdf"]
+    assert len(rep) >= 4
+    assert list(rep.page) == sorted(rep.page) and rep.page.iloc[-1] >= 8
+    assert len(report["removed_headers_footers"]["divers/rapport_activite_2025.pdf"]) == 22
+    text = "\n".join(rep.text_raw)
+    assert "Agence Fictive de l'Eau et de l'Environnement - Rapport" not in text
+    # Section 6 continues on the next page without a heading: both parts must be kept.
+    assert "Énergie et climat" in text and "îlots de fraîcheur" in text

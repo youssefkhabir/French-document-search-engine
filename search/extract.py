@@ -3,12 +3,17 @@
 Contract
 --------
 extract_folder(folder) -> (pages, skipped)
-    pages:   list of dicts {"doc_id", "title", "path", "format", "page", "text"}:
-             one per PDF page, one per non-PDF document (page = 1).
+    pages:   list of dicts {"doc_id", "collection", "title", "path", "format", "page",
+             "text", "meta"}: one per PDF page, one per non-PDF document (page = 1).
              `text` is raw: paragraphs separated by a blank line ("\\n\\n"), lines inside
              a paragraph by "\\n" (so clean.py can rejoin hyphenated line ends).
+             `collection` is the first sub-folder of the corpus ("" for files at the root).
     skipped: list of (relative path, reason), e.g. scanned PDFs (OCR is out of scope),
              empty or unreadable files, unsupported formats.
+
+Optional folder metadata: a `.metadata.json` file in any folder maps file names to
+fields, e.g. {"ab12.txt": {"title": "Les champs lexicaux", "subject": "french"}}.
+"title" replaces the extracted title; other fields are kept in `meta`.
 
 Libraries: PyMuPDF for PDF (page by page, so results can show the page number),
 python-docx for DOCX, BeautifulSoup for HTML, plain reading for TXT, the standard
@@ -16,10 +21,19 @@ python-docx for DOCX, BeautifulSoup for HTML, plain reading for TXT, the standar
 """
 import csv
 import io
+import json
 import re
 from pathlib import Path
 
 SUPPORTED = {".pdf", ".docx", ".txt", ".html", ".htm", ".csv"}
+METADATA_FILE = ".metadata.json"
+# Titles that tools write into file metadata and that mean nothing to a reader.
+RE_JUNK_TITLE = re.compile(
+    r"^(microsoft (word|powerpoint|excel)\b|untitled|sans titre|document\s*\d*$|"
+    r"diapositive|présentation\s*\d*$|titre$|title$)"
+    r"|\\|^[a-z]:|^/"              # a path (but "H/F" in a job title is fine)
+    r"|\.(docx?|pdf|txt|html?|odt|rtf|csv)$",   # a file name
+    re.IGNORECASE)
 CSV_DELIMITERS = ";,\t|"  # ";" first: French Excel exports use it
 RE_NUMBER = re.compile(r"[-+]?\d[\d\s]*([.,]\d+)?\s*%?")  # 12 | -3,5 | 10 000 | 45 %
 MIN_CHARS_PER_PAGE = 30  # below this on average, a PDF is treated as a scan
@@ -41,9 +55,10 @@ def extract_folder(folder: Path) -> tuple[list[dict], list[tuple[str, str]]]:
     folder = Path(folder)
     pages: list[dict] = []
     skipped: list[tuple[str, str]] = []
+    metadata: dict[Path, dict] = {}  # folder -> {file name: fields}
     for path in sorted(p for p in folder.rglob("*") if p.is_file()):
         rel = path.relative_to(folder).as_posix()
-        if path.name.startswith((".", "~$")):  # .gitkeep, Office lock files
+        if path.name.startswith((".", "~$")):  # .gitkeep, .metadata.json, Office lock files
             continue
         if path.suffix.lower() not in SUPPORTED:
             skipped.append((rel, f"unsupported format ({path.suffix or 'no extension'})"))
@@ -56,10 +71,38 @@ def extract_folder(folder: Path) -> tuple[list[dict], list[tuple[str, str]]]:
         except Exception as e:  # noqa: BLE001 - a corrupt file must not stop indexing
             skipped.append((rel, f"unreadable: {type(e).__name__}: {e}"))
             continue
+        if path.parent not in metadata:
+            metadata[path.parent] = _load_metadata(path.parent)
+        fields = dict(metadata[path.parent].get(path.name, {}))
+        title = str(fields.pop("title", "") or "").strip()
+        collection = rel.split("/", 1)[0] if "/" in rel else ""
         for p in doc_pages:
             p["doc_id"] = rel
+            p["collection"] = collection
+            p["meta"] = fields
+            if title:
+                p["title"] = title
         pages.extend(doc_pages)
     return pages, skipped
+
+
+def _load_metadata(folder: Path) -> dict:
+    f = folder / METADATA_FILE
+    if not f.exists():
+        return {}
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (ValueError, OSError):
+        return {}  # a broken metadata file must not stop indexing
+
+
+def clean_title(title: str | None, path: Path) -> str:
+    """Extracted title, or the file name when the title is missing or meaningless."""
+    title = " ".join((title or "").split())
+    if len(title) < 3 or RE_JUNK_TITLE.search(title):
+        return path.stem.replace("_", " ").replace("-", " ").strip()
+    return title
 
 
 def extract_file(path: Path) -> list[dict]:
@@ -72,7 +115,8 @@ def extract_file(path: Path) -> list[dict]:
     elif ext in (".html", ".htm"):
         title, texts = _html(path)
     elif ext == ".txt":
-        title, texts = None, [_read_txt(path)]
+        text = _read_txt(path)
+        title, texts = _txt_title(text), [text]
     elif ext == ".csv":
         title, texts = None, [_csv(path)]
     else:
@@ -80,10 +124,10 @@ def extract_file(path: Path) -> list[dict]:
 
     if not any(t.strip() for t in texts):
         raise SkipFile("no text extracted (empty document)")
-    title = (title or "").strip() or path.stem.replace("_", " ")
+    title = clean_title(title, path)
     fmt = "html" if ext == ".htm" else ext.lstrip(".")
-    return [{"doc_id": path.name, "title": title, "path": str(path), "format": fmt,
-             "page": i + 1, "text": t}
+    return [{"doc_id": path.name, "collection": "", "title": title, "path": str(path),
+             "format": fmt, "page": i + 1, "text": t, "meta": {}}
             for i, t in enumerate(texts) if t.strip()]
 
 
@@ -200,6 +244,15 @@ def _csv(path: Path) -> str:
 
 
 # --- TXT -------------------------------------------------------------------
+
+def _txt_title(text: str) -> str | None:
+    """First line as title when it stands alone: one short line followed by a blank line,
+    not ending like a sentence. Otherwise None (the file name is used)."""
+    first = text.strip().replace("\r\n", "\n").split("\n\n", 1)[0].strip()
+    if "\n" in first or not 3 <= len(first) <= 150 or first.endswith((".", ",", ";", ":")):
+        return None
+    return first
+
 
 def _read_txt(path: Path) -> str:
     raw = path.read_bytes()

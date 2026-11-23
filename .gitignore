@@ -19,3 +19,6 @@ nltk_data/
 *.egg-info/
 .streamlit/secrets.toml
 .env
+
+# Downloaded benchmark data (rebuilt by scripts/fetch_alloprof.py)
+eval/alloprof/

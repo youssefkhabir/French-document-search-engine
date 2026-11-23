@@ -7,8 +7,13 @@ chunk starts with the last sentences of the previous one, up to CHUNK_OVERLAP_WO
 so an idea cut at a boundary is still found whole in one chunk. Short documents (a
 one-page CV) stay a single chunk.
 
-Chunk record: {"chunk_id", "doc_id", "title", "page", "n_words", "text_raw"}
-(`text_lex` is added later by lexical.lexical_prep).
+Chunk record: {"chunk_id", "doc_id", "collection", "format", "title", "page", "n_words",
+"text_raw", "text_index", "meta"}.
+- `text_raw`: the chunk as written, used for snippets.
+- `text_index`: what the branches index. With CHUNK_TITLE_PREFIX it is "title\\ntext_raw",
+  so a chunk taken from the middle of a long document keeps its subject.
+- `meta`: extra fields from the folder's .metadata.json (e.g. the Alloprof subject).
+(`text_lex` is added later by lexical.lexical_prep, from `text_index`.)
 """
 import re
 
@@ -68,7 +73,8 @@ def _join(units: list[tuple[str, int, int, bool]]) -> str:
 
 
 def chunk_document(pages: list[dict], max_words: int | None = None,
-                   overlap_words: int | None = None, min_tail_words: int = 50) -> list[dict]:
+                   overlap_words: int | None = None, min_tail_words: int = 50,
+                   title_prefix: bool | None = None) -> list[dict]:
     """Chunk the cleaned pages of ONE document (dicts with doc_id, title, page, text)."""
     max_words = max_words or config.CHUNK_MAX_WORDS
     overlap_words = config.CHUNK_OVERLAP_WORDS if overlap_words is None else overlap_words
@@ -107,16 +113,23 @@ def chunk_document(pages: list[dict], max_words: int | None = None,
             groups.append(current)
             firsts.append(n_overlap)
 
+    if title_prefix is None:
+        title_prefix = config.CHUNK_TITLE_PREFIX
+    first_page = pages[0]
     chunks = []
     for k, (group, first) in enumerate(zip(groups, firsts)):
         text = _join(group)
         chunks.append({
             "chunk_id": f"{doc_id}#{k}",
             "doc_id": doc_id,
+            "collection": first_page.get("collection", ""),
+            "format": first_page.get("format", ""),
             "title": title,
             "page": group[first][2],  # page where the chunk's new content starts
             "n_words": len(text.split()),
             "text_raw": text,
+            "text_index": f"{title}\n{text}" if title_prefix else text,
+            "meta": dict(first_page.get("meta") or {}),
         })
     return chunks
 

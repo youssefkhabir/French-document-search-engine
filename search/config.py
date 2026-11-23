@@ -36,6 +36,8 @@ RERANK_MODEL = "BAAI/bge-reranker-v2-m3"
 CHUNK_MIN_WORDS = 200
 CHUNK_MAX_WORDS = 250
 CHUNK_OVERLAP_WORDS = 40
+# Prefix each chunk's indexed text with the document title (ablation: set to False).
+CHUNK_TITLE_PREFIX = True
 
 # --- Search -----------------------------------------------------------------
 BRANCH_TOP_K = 50        # candidates kept by each branch

@@ -1,4 +1,10 @@
-"""Generate the synthetic test corpus: 10 CVs + 6 job offers in PDF, DOCX, TXT and HTML.
+"""Generate the synthetic test corpus in PDF, DOCX, TXT, HTML and CSV:
+10 CVs (cv/), 6 job offers (offres/) and 7 documents of other kinds (divers/): a 10-page
+activity report, an administrative procedure with a table, a news article, a scientific
+abstract, a decree excerpt and two CSV tables.
+
+Existing files are kept, so committed binaries do not change on every run; use --force
+to rewrite everything.
 
 All people, companies and addresses are FICTIONAL. The files contain the cases the
 Phase 1 pipeline must handle:
@@ -8,10 +14,12 @@ Phase 1 pipeline must handle:
   - HTML with nav / script / style              -> must be dropped
   - one-page CVs                                -> must stay one chunk
   - a long offer (> 250 words)                  -> must be split with overlap
+  - a 10-page report                            -> many chunks, a section across pages
+  - a DOCX table, "Art. 1er" abbreviations      -> table text kept, no false sentence cut
 They also plant retrieval pairs for later phases, e.g. a CV that says only
 "ingénieur logiciel" and an offer that says "développeur".
 
-Usage: python scripts/make_fixtures.py [--out tests/fixtures/corpus]
+Usage: python scripts/make_fixtures.py [--out tests/fixtures/corpus] [--force]
 """
 import argparse
 import csv
@@ -307,6 +315,20 @@ PAGE_W, PAGE_H = 595, 842  # A4 in points
 MARGIN = 60
 
 
+FORCE = False  # set by --force
+
+
+def keep_existing(writer):
+    """Skip writing when the file exists, unless --force: committed binaries stay stable."""
+    def wrapped(path: Path, *args, **kwargs):
+        if path.exists() and not FORCE:
+            return
+        writer(path, *args, **kwargs)
+    wrapped.__name__ = writer.__name__
+    return wrapped
+
+
+@keep_existing
 def write_pdf(path: Path, pages: list[str], title: str, fontsize: float = 10.5) -> None:
     """One string per page. Lines are placed as written, so '-\\n' gives a real line-end hyphen."""
     doc = pymupdf.open()
@@ -322,6 +344,7 @@ def write_pdf(path: Path, pages: list[str], title: str, fontsize: float = 10.5) 
     doc.save(path)
 
 
+@keep_existing
 def write_scanned_pdf(path: Path, text: str) -> None:
     """Render a text page to an image and put only the image in the PDF (no text layer)."""
     src = pymupdf.open()
@@ -335,6 +358,7 @@ def write_scanned_pdf(path: Path, text: str) -> None:
     out.save(path)
 
 
+@keep_existing
 def write_docx(path: Path, text: str, title: str, header: str | None = None) -> None:
     doc = Document()
     doc.core_properties.title = title
@@ -351,6 +375,7 @@ def write_docx(path: Path, text: str, title: str, header: str | None = None) -> 
     doc.save(path)
 
 
+@keep_existing
 def write_txt(path: Path, text: str, encoding: str = "utf-8") -> None:
     path.write_text(text, encoding=encoding)
 
@@ -382,15 +407,125 @@ CSV_INDICATEURS = [
 ]
 
 
+@keep_existing
 def write_csv(path: Path, rows: list[list[str]], delimiter: str, encoding: str) -> None:
     with path.open("w", encoding=encoding, newline="") as f:
         csv.writer(f, delimiter=delimiter, quoting=csv.QUOTE_MINIMAL).writerows(rows)
 
 
+# ---------------------------------------------------------------------------
+# divers/: documents that are not CVs or offers
+# ---------------------------------------------------------------------------
+
+# Ten pages, one section per page, with a header and "Page n / 10" footer on each.
+# Section 6 continues on page 7 (no heading there), to test a chunk that spans pages.
+REPORT_TITLE = "Agence Fictive de l'Eau et de l'Environnement - Rapport d'activité 2025"
+REPORT_SECTIONS = [
+    """1. Mot de la directrice
+L'année 2025 a été marquée par une sécheresse précoce et par la mise en place de notre nouveau plan stratégique. Malgré un contexte budgétaire tendu, l'agence a maintenu l'ensemble de ses missions de surveillance et a renforcé son action auprès des collectivités. Je remercie les équipes pour leur engagement constant. Ce rapport présente nos résultats dans six domaines : la qualité de l'eau, la biodiversité, la qualité de l'air, les déchets, l'énergie et la sensibilisation du public. Il détaille aussi nos moyens humains et financiers, ainsi que nos priorités pour l'année 2026.""",
+    """2. Qualité de l'eau
+Le réseau de surveillance compte désormais 412 stations de mesure réparties sur les cours d'eau et les nappes souterraines du bassin. En 2025, 78 % des masses d'eau superficielles ont atteint le bon état écologique, contre 74 % en 2024. Les concentrations en nitrates restent élevées dans les zones de grandes cultures, où un programme d'accompagnement des agriculteurs a été lancé. Les épisodes de faibles débits estivaux ont conduit à des arrêtés de restriction d'usage dans onze départements. L'agence a financé la modernisation de vingt-trois stations d'épuration, pour un montant total de 14 millions d'euros.""",
+    """3. Biodiversité
+Les inventaires naturalistes ont recensé 2 140 espèces sur les sites suivis par l'agence, dont 96 espèces protégées. La restauration de la continuité écologique a progressé avec l'effacement de dix-sept seuils sur les rivières, ce qui permet de nouveau la remontée des poissons migrateurs comme le saumon et l'anguille. Trois zones humides ont été acquises et seront gérées en partenariat avec les conservatoires d'espaces naturels. Un suivi des pollinisateurs a été conduit avec des bénévoles dans quarante communes.""",
+    """4. Qualité de l'air
+Les capteurs de l'agence ont enregistré une baisse de 9 % des concentrations moyennes de dioxyde d'azote dans les agglomérations, liée au renouvellement du parc de véhicules et aux zones à faibles émissions. En revanche, les épisodes de pollution à l'ozone ont été plus nombreux pendant l'été, en raison des fortes chaleurs. Quatorze alertes ont été diffusées à la population. Une campagne de mesure des pesticides dans l'air a été menée à proximité des écoles situées en zone agricole.""",
+    """5. Gestion des déchets
+Le taux de valorisation des déchets ménagers a atteint 61 % sur le territoire. L'agence a soutenu la création de huit ressourceries et l'extension du tri des biodéchets à 310 000 habitants supplémentaires. Les dépôts sauvages restent un problème majeur dans les zones rurales : un dispositif de signalement en ligne a permis de traiter 1 250 signalements. Une étude sur le gaspillage alimentaire dans la restauration collective a été publiée et sert de base à des actions dans les cantines scolaires.""",
+    """6. Énergie et climat
+Le bilan des émissions de gaz à effet de serre du territoire montre une baisse de 3 % par rapport à 2024. L'agence a accompagné quarante projets de production d'énergie renouvelable, principalement des installations photovoltaïques sur des bâtiments publics et des réseaux de chaleur alimentés par la biomasse. Le programme de rénovation énergétique des logements a aidé 2 900 ménages modestes à isoler leur habitation et à remplacer leur chaudière. L'adaptation au changement climatique devient une priorité : les collectivités demandent un appui pour végétaliser les cours d'école et pour gérer les eaux pluviales lors des orages violents.""",
+    """Les diagnostics de vulnérabilité réalisés dans douze intercommunalités ont identifié les quartiers les plus exposés aux vagues de chaleur. Ces résultats orientent désormais les financements de l'agence vers les projets de désimperméabilisation des sols et de création d'îlots de fraîcheur. Une première évaluation montre une baisse de plusieurs degrés de la température ressentie dans les espaces réaménagés.""",
+    """7. Sensibilisation du public
+Plus de 18 000 élèves ont participé aux animations pédagogiques de l'agence sur l'eau, les déchets et la biodiversité. Le site internet a reçu 640 000 visites et les fiches pratiques sur les économies d'eau ont été les plus consultées. Une exposition itinérante sur le changement climatique a circulé dans vingt médiathèques. L'agence a également formé 350 agents des collectivités aux enjeux de la transition écologique.""",
+    """8. Ressources humaines
+Au 31 décembre 2025, l'agence employait 286 agents, dont 54 % de femmes. Vingt et un recrutements ont été réalisés, principalement des ingénieurs et des techniciens de terrain. Le plan de formation a représenté 4 200 heures, avec un effort particulier sur la sécurité lors des prélèvements en rivière. Le télétravail concerne désormais 70 % des agents dont les missions le permettent. Un baromètre social montre une satisfaction globale en hausse.""",
+    """9. Budget
+Le budget exécuté s'élève à 212 millions d'euros. Les aides versées aux collectivités, aux entreprises et aux agriculteurs représentent 71 % des dépenses. Les recettes proviennent pour l'essentiel des redevances sur l'eau, complétées par des subventions européennes. Les dépenses de fonctionnement ont été contenues à 9 % du budget grâce à la mutualisation des moyens informatiques et à la réduction des surfaces de bureaux.""",
+    """10. Perspectives 2026
+En 2026, l'agence concentrera ses moyens sur trois priorités : la sobriété dans les usages de l'eau, la restauration des milieux naturels et l'adaptation des territoires au changement climatique. Un nouvel appel à projets sera lancé pour les solutions fondées sur la nature. La refonte du réseau de mesure de la qualité de l'air sera achevée, et un observatoire des données environnementales ouvrira au public.""",
+]
+
+PROCEDURE_INTRO = """Procédure : demande de carte nationale d'identité
+
+La carte nationale d'identité est gratuite lors d'une première demande ou d'un renouvellement. Elle est payante en cas de perte ou de vol. La demande se fait en mairie, sur rendez-vous, dans n'importe quelle commune équipée d'un dispositif de recueil.
+
+Étapes
+Remplir une pré-demande en ligne et noter le numéro obtenu. Prendre rendez-vous auprès d'une mairie équipée. Se présenter en personne avec les pièces justificatives : les empreintes digitales sont relevées sur place. Retirer la carte dans la même mairie lorsque le SMS de mise à disposition est reçu."""
+PROCEDURE_TABLE = [
+    ["Situation", "Pièces à fournir", "Coût"],
+    ["Première demande", "Photo d'identité récente, justificatif de domicile, acte de naissance si nécessaire", "Gratuit"],
+    ["Renouvellement", "Ancienne carte, photo d'identité, justificatif de domicile", "Gratuit"],
+    ["Perte ou vol", "Déclaration de perte ou de vol, photo d'identité, justificatif de domicile, timbre fiscal", "25 euros"],
+]
+PROCEDURE_END = "Le délai de fabrication varie de deux à six semaines selon la période de l'année."
+
+ARTICLE_HTML = """<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="utf-8"><title>Le vélo gagne du terrain dans les villes moyennes - Journal Imaginaire</title>
+<script>loadAds();</script></head>
+<body>
+<nav><a href="/">Une</a> | <a href="/societe">Société</a> | <a href="/sport">Sport</a></nav>
+<article>
+<h1>Le vélo gagne du terrain dans les villes moyennes</h1>
+<p class="chapo">Pistes cyclables, aides à l'achat, stationnements sécurisés : les villes de taille moyenne rattrapent leur retard sur les métropoles.</p>
+<p>À Villefictive, la part des trajets domicile-travail effectués à <strong>vélo</strong> a doublé en trois ans. La municipalité a créé quarante kilomètres d'aménagements cyclables et installé des abris fermés près de la gare.</p>
+<p>« Le plus difficile était de convaincre les commerçants », explique l'adjointe chargée des mobilités. Les enquêtes montrent pourtant que les clients venus à pied ou à vélo dépensent davantage sur un mois que ceux venus en voiture.</p>
+<p>Les associations d'usagers demandent maintenant des itinéraires continus vers les communes voisines, où les routes restent dangereuses pour les cyclistes.</p>
+</article>
+<aside>À lire aussi : Les transports en commun gratuits, une fausse bonne idée ?</aside>
+<footer>Journal Imaginaire - Tous droits réservés</footer>
+</body>
+</html>"""
+
+RESUME_SCIENTIFIQUE = """Effet de la végétalisation des cours d'école sur la température ressentie : une étude dans cinq villes françaises
+
+Résumé
+Les cours d'école minérales deviennent des îlots de chaleur lors des épisodes caniculaires. Cette étude compare dix cours réaménagées avec des arbres, des sols perméables et des points d'eau à dix cours restées en bitume, dans cinq villes. Des capteurs ont mesuré la température de l'air et la température de surface pendant deux étés. L'indice de confort thermique a été calculé chaque heure.
+
+Résultats
+Dans les cours végétalisées, la température de surface est inférieure de 12 °C en moyenne en début d'après-midi, et la température ressentie baisse de 3 à 5 °C. L'effet est maximal sous les arbres adultes et faible sous les jeunes plantations.
+
+Conclusion
+La désimperméabilisation des cours d'école est une mesure efficace d'adaptation au changement climatique. Son bénéfice augmente avec la croissance des arbres, ce qui plaide pour des plantations rapides.
+
+Mots-clés : îlot de chaleur urbain, adaptation, confort thermique, école, végétalisation."""
+
+DECRET_PAGES = ["""Décret fictif n° 2026-41 du 12 février 2026 relatif aux horaires d'ouverture des déchetteries intercommunales
+
+Le Premier ministre fictif,
+Vu le code de l'environnement, notamment son art. L. 541-1 ;
+Vu l'avis de la commission consultative d'évaluation des normes ;
+
+Décrète :
+
+Art. 1er. - Les déchetteries gérées par un établissement public de coopération intercommunale sont ouvertes au moins cinq jours par semaine, dont le samedi. Les horaires sont affichés à l'entrée du site et publiés en ligne.
+
+Art. 2. - Pendant la période estivale, définie du 1er juin au 31 août, l'ouverture peut être avancée à sept heures afin d'éviter les fortes chaleurs. Les dispositions de l'art. 1er restent applicables.
+
+Art. 3. - Le présent décret entre en vigueur le 1er avril 2026. M. le ministre fictif de la transition écologique est chargé de son exécution."""]
+
+
+@keep_existing
+def write_docx_table(path: Path, intro: str, table: list[list[str]], end: str, title: str) -> None:
+    doc = Document()
+    doc.core_properties.title = title
+    for para in intro.split("\n\n"):
+        doc.add_paragraph(para.replace("\n", " "))
+    t = doc.add_table(rows=len(table), cols=len(table[0]))
+    for i, row in enumerate(table):
+        for j, cell in enumerate(row):
+            t.cell(i, j).text = cell
+    doc.add_paragraph(end)
+    doc.save(path)
+
+
 def main() -> None:
+    global FORCE
     p = argparse.ArgumentParser()
     p.add_argument("--out", default=str(ROOT / "tests" / "fixtures" / "corpus"))
-    out = Path(p.parse_args().out)
+    p.add_argument("--force", action="store_true", help="rewrite files that already exist")
+    args = p.parse_args()
+    FORCE = args.force
+    out = Path(args.out)
     (out / "cv").mkdir(parents=True, exist_ok=True)
     (out / "offres").mkdir(parents=True, exist_ok=True)
 
@@ -423,8 +558,19 @@ def main() -> None:
     write_csv(out / "divers" / "catalogue_formations.csv", CSV_FORMATIONS, ";", "cp1252")
     write_csv(out / "divers" / "indicateurs_emploi.csv", CSV_INDICATEURS, ",", "utf-8")
 
+    n = len(REPORT_SECTIONS)
+    write_pdf(out / "divers" / "rapport_activite_2025.pdf",
+              [f"{REPORT_TITLE}\n\n{s}\n\nPage {i + 1} / {n}" for i, s in enumerate(REPORT_SECTIONS)],
+              REPORT_TITLE)
+    write_docx_table(out / "divers" / "procedure_carte_identite.docx", PROCEDURE_INTRO,
+                     PROCEDURE_TABLE, PROCEDURE_END, "Procédure - Carte nationale d'identité")
+    write_txt(out / "divers" / "article_velo_villes_moyennes.html", ARTICLE_HTML)
+    write_txt(out / "divers" / "resume_vegetalisation_ecoles.txt", RESUME_SCIENTIFIQUE)
+    # Title left empty on purpose: the loader must fall back to the file name.
+    write_pdf(out / "divers" / "decret_horaires_dechetteries.pdf", DECRET_PAGES, "Microsoft Word - decret_v3.docx")
+
     files = sorted(f for f in out.rglob("*") if f.is_file())
-    print(f"{len(files)} files written to {out}")
+    print(f"{len(files)} files in {out}")
     for f in files:
         print(f"  {f.relative_to(out)}  ({f.stat().st_size:,} bytes)")
 

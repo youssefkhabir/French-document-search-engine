@@ -14,6 +14,8 @@ from search.clean import clean_text, remove_repeated_lines
 from search.extract import extract_folder
 
 MODES = ("tfidf", "bm25", "semantic", "hybrid", "word2vec")  # word2vec = optional S6
+CHUNK_COLUMNS = ["chunk_id", "doc_id", "collection", "format", "title", "page", "n_words",
+                 "text_raw", "text_index", "meta"]
 
 
 def ingest(folder: Path) -> tuple[pd.DataFrame, list[tuple[str, str]], dict]:
@@ -39,13 +41,16 @@ def ingest(folder: Path) -> tuple[pd.DataFrame, list[tuple[str, str]], dict]:
             if text:
                 cleaned.append({**p, "text": text})
 
-    chunks = pd.DataFrame(chunk_pages(cleaned),
-                          columns=["chunk_id", "doc_id", "title", "page", "n_words", "text_raw"])
+    chunks = pd.DataFrame(chunk_pages(cleaned), columns=CHUNK_COLUMNS)
+    # Parquet cannot store a column of (possibly empty) dicts: keep meta as JSON text.
+    chunks["meta"] = chunks["meta"].map(lambda m: json.dumps(m or {}, ensure_ascii=False))
     report = {
         "n_documents": chunks["doc_id"].nunique(),
         "n_pages": len(pages),
         "n_chunks": len(chunks),
         "n_skipped": len(skipped),
+        "per_collection": {c or "(root)": int(n) for c, n in
+                           chunks.groupby("collection")["doc_id"].nunique().items()},
         "removed_headers_footers": removed,
     }
     return chunks, skipped, report
@@ -79,7 +84,9 @@ def build_index(folder: Path | None = None, index_dir: Path | None = None) -> di
         "n_pages": report["n_pages"],
         "n_chunks": report["n_chunks"],
         "n_skipped": report["n_skipped"],
+        "documents_per_collection": report["per_collection"],
         "chunk_words": {"max": config.CHUNK_MAX_WORDS, "overlap": config.CHUNK_OVERLAP_WORDS},
+        "title_prefix": config.CHUNK_TITLE_PREFIX,
         "seconds": round(time.perf_counter() - t0, 2),
     }
     (index_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2),
