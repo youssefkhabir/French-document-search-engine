@@ -27,6 +27,8 @@ CORPUS = Path(__file__).parent / "fixtures" / "corpus"
     ("ﬁlière", "filière"),                                      # PDF ligature
     ("ligne un\nligne deux", "ligne un ligne deux"),                 # wrapped lines
     ("a   b\t c", "a b c"),                                          # spaces
+    ("p &amp;= 3 et a &lt; b", "p &= 3 et a < b"),                   # leftover HTML entities
+    ("R&D et AT&T", "R&D et AT&T"),                                  # not entities: kept
 ])
 def test_clean_text(raw, expected):
     assert clean_text(raw) == expected

@@ -6,6 +6,7 @@ separated by "\\n". Output: same paragraph structure, each paragraph on one line
 Accents and capital letters are KEPT: the embedding model needs natural text. The lexical
 form (lowercase, lemmas, no accents) is built later by lexical.lexical_prep.
 """
+import html
 import math
 import re
 import unicodedata
@@ -23,6 +24,9 @@ CHAR_MAP = str.maketrans({
 RE_HYPHEN_BREAK = re.compile(r"(\w+)-\n[ \t]*(\w+)")
 RE_SPACES = re.compile(r"[ \t\f\v]+")
 RE_DIGITS = re.compile(r"\d+")
+# HTML entities left in plain text ("p &amp;= ...", "a &lt; b" in Alloprof pages). Only the
+# common named ones and numeric ones, with their ";", so "R&D" or "AT&T" are never touched.
+RE_HTML_ENTITY = re.compile(r"&(?:amp|lt|gt|quot|apos|nbsp|#\d{1,6}|#x[0-9a-fA-F]{1,6});")
 # "3", "Page 3", "page 3 / 12", "3 sur 12", "- 3 -"
 RE_PAGE_NUMBER = re.compile(r"^[-–\s]*(page\s*)?\d{1,4}(\s*(/|sur|of)\s*\d{1,4})?[-–\s]*$",
                             re.IGNORECASE)
@@ -30,8 +34,14 @@ RE_PAGE_NUMBER = re.compile(r"^[-–\s]*(page\s*)?\d{1,4}(\s*(/|sur|of)\s*\d{1,4
 REPEAT_MIN_SHARE = 0.6  # a paragraph on >= 60% of a document's pages is a header/footer
 
 
+def _decode_entity(m: re.Match) -> str:
+    return html.unescape(m.group(0))
+
+
 def clean_text(text: str) -> str:
-    """Normalize Unicode, rejoin hyphenated line ends, unwrap lines, collapse whitespace."""
+    """Decode leftover HTML entities, normalize Unicode, rejoin hyphenated line ends,
+    unwrap lines, collapse whitespace."""
+    text = RE_HTML_ENTITY.sub(_decode_entity, text)
     text = unicodedata.normalize("NFC", text).translate(CHAR_MAP)
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = _rejoin_hyphens(text)

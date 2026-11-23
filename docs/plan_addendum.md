@@ -261,7 +261,18 @@ biologiques L'anatomie…"*). Chunking therefore relies on sentence boundaries, 
 250-word windows where punctuation is missing. Snippets from Alloprof will show no
 paragraph structure. This is a property of the dataset, to mention in the report.
 
-## 2.10 Impact on the phases
+## 2.10 Phase 2: done
+
+Lexical branch and first page, reviewed in `docs/phase2_review.md`. Alloprof: 7,074 chunks,
+46,082 terms. Quick check on the 300 dev questions: Recall@10 **0.620 (TF-IDF)** and
+**0.590 (BM25)**. BM25 being behind is to be confirmed on the test questions in Phase 5.
+
+Two items move to Phase 4's typo correction:
+- **accents**: a word typed without accents is not lemmatized by spaCy (*infirmiere* ≠
+  `infirmier`), and Alloprof questions often lack accents
+- possibly **LaTeX** left in Alloprof pages, if Phase 5 shows it hurts
+
+## 2.11 Impact on the phases
 
 | Phase | Change |
 |---|---|

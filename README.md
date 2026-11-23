@@ -102,6 +102,14 @@ Phase 1 writes:
 
 On Alloprof: 2,350 documents → 7,074 chunks in about 5 seconds.
 
+Phase 2 adds the lexical branch:
+- `text_lex` column in `chunks.parquet`: the chunk after `lexical_prep` (spaCy lemmas,
+  no stopwords, lowercase, no accents)
+- `index/tfidf.pkl`: TF-IDF vectorizer and matrix
+- `index/bm25/`: BM25 index (bm25s)
+
+With it the Alloprof build takes about 2 minutes, almost all of it spaCy.
+
 Optional per-folder metadata: a `.metadata.json` in any corpus folder can set a file's
 title and extra fields, e.g. `{"page.txt": {"title": "Les fractions", "subject": "math"}}`.
 
@@ -131,6 +139,10 @@ python -m pytest
 ```powershell
 streamlit run app.py
 ```
+
+The page searches in TF-IDF or BM25 mode, with filters by collection and file type. It can
+open any index folder of the project (`index/`, or `index_test/` built with `--index`).
+The other modes arrive in Phases 3 and 4.
 
 ## Layout
 
