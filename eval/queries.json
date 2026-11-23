@@ -1,0 +1,4 @@
+[
+  {"qid": "Q01", "type": "A", "split": "dev", "text": "exemple : certification ISO 27001"},
+  {"qid": "Q02", "type": "C", "split": "test", "text": "exemple : candidat pour un poste de développeur"}
+]

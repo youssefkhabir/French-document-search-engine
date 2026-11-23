@@ -1,0 +1,19 @@
+# Core
+streamlit
+sentence-transformers
+bm25s
+spacy
+scikit-learn
+rapidfuzz
+pymupdf
+python-docx
+beautifulsoup4
+numpy
+pandas
+pyarrow
+huggingface_hub
+psutil
+
+# Optional — course Chapter 3 components (WordNet expansion, word2vec baseline)
+nltk
+gensim

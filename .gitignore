@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.pyc
+index/*
+!index/.gitkeep
+# Corpus may contain personal data (CVs): keep it out of the repository.
+data/corpus/*
+!data/corpus/.gitkeep
+models/
+eval/results/
+
+# Course material and plan PDFs stay local
+*.pdf
+
+# Downloaded models, NLTK data, caches
+nltk_data/
+.uv-cache/
+*.egg-info/
+.streamlit/secrets.toml
+.env
