@@ -14,6 +14,7 @@ They also plant retrieval pairs for later phases, e.g. a CV that says only
 Usage: python scripts/make_fixtures.py [--out tests/fixtures/corpus]
 """
 import argparse
+import csv
 from pathlib import Path
 
 import pymupdf
@@ -354,6 +355,38 @@ def write_txt(path: Path, text: str, encoding: str = "utf-8") -> None:
     path.write_text(text, encoding=encoding)
 
 
+# Training catalogue, French Excel style: ";" delimiter, Windows-1252, a description with a
+# line break inside a quoted cell, and one empty cell (no "Prérequis" for the last course).
+CSV_FORMATIONS = [
+    ["Intitulé", "Domaine", "Durée", "Lieu", "Description", "Prérequis"],
+    ["Initiation à la cybersécurité", "Informatique", "2 jours", "Lyon",
+     "Comprendre les menaces courantes : hameçonnage, rançongiciels, mots de passe faibles.\n"
+     "Adopter les bons réflexes au quotidien.", "Aucun"],
+    ["Gestion de projet agile", "Management", "3 jours", "Paris",
+     "Découvrir Scrum et Kanban, animer les cérémonies, prioriser un carnet de produit.",
+     "Expérience en conduite de projet"],
+    ["Premiers secours en milieu professionnel", "Santé et sécurité", "1 jour", "Grenoble",
+     "Réagir face à un malaise, pratiquer le massage cardiaque et utiliser un défibrillateur.",
+     "Aucun"],
+    ["Rédiger des comptes rendus efficaces", "Communication", "1 jour", "À distance",
+     "Structurer un compte rendu de réunion, aller à l'essentiel, adapter le ton au lecteur.",
+     ""],
+]
+
+# Numeric table, "," delimiter, UTF-8: little text besides the column names and labels.
+CSV_INDICATEURS = [
+    ["Région", "Année", "Taux de chômage (%)", "Population active"],
+    ["Auvergne-Rhône-Alpes", "2025", "6.4", "4100000"],
+    ["Île-de-France", "2025", "7.1", "6300000"],
+    ["Occitanie", "2025", "8.6", "2700000"],
+]
+
+
+def write_csv(path: Path, rows: list[list[str]], delimiter: str, encoding: str) -> None:
+    with path.open("w", encoding=encoding, newline="") as f:
+        csv.writer(f, delimiter=delimiter, quoting=csv.QUOTE_MINIMAL).writerows(rows)
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--out", default=str(ROOT / "tests" / "fixtures" / "corpus"))
@@ -385,6 +418,10 @@ def main() -> None:
     write_docx(out / "offres" / "offre_gestionnaire_paie.docx", OFFRE_PAIE, "Offre - Gestionnaire de paie")
     write_pdf(out / "offres" / "offre_data_analyst.pdf", [OFFRE_DATA], "Offre - Data analyst")
     write_txt(out / "offres" / "offre_professeur_maths.html", OFFRE_PROF_HTML)
+
+    (out / "divers").mkdir(parents=True, exist_ok=True)
+    write_csv(out / "divers" / "catalogue_formations.csv", CSV_FORMATIONS, ";", "cp1252")
+    write_csv(out / "divers" / "indicateurs_emploi.csv", CSV_INDICATEURS, ",", "utf-8")
 
     files = sorted(f for f in out.rglob("*") if f.is_file())
     print(f"{len(files)} files written to {out}")

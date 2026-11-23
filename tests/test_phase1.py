@@ -129,6 +129,30 @@ def test_docx_body_only():
     assert "document confidentiel" not in text  # section header is not body text
 
 
+def test_csv_with_header_semicolon_cp1252():
+    text = extract_file(CORPUS / "divers" / "catalogue_formations.csv")[0]["text"]
+    rows = text.split("\n\n")
+    assert len(rows) == 4                                   # header row is not a paragraph
+    assert rows[0].startswith("Intitulé : Initiation à la cybersécurité ; Domaine : Informatique")
+    assert "Adopter les bons réflexes" in rows[0]           # quoted cell with a line break
+    assert "Prérequis" not in rows[3]                       # empty cell skipped
+
+
+def test_csv_numeric_table_keeps_column_names():
+    text = extract_file(CORPUS / "divers" / "indicateurs_emploi.csv")[0]["text"]
+    assert "Région : Île-de-France ; Année : 2025 ; Taux de chômage (%) : 7.1" in text
+
+
+def test_csv_without_header_and_single_column(tmp_path):
+    (tmp_path / "a.csv").write_text("Paris,75\nLyon,69\nLille,59\n", encoding="utf-8")
+    assert extract_file(tmp_path / "a.csv")[0]["text"] == "Paris ; 75\n\nLyon ; 69\n\nLille ; 59"
+    (tmp_path / "b.csv").write_text("une phrase\nune autre phrase\n", encoding="utf-8")
+    assert extract_file(tmp_path / "b.csv")[0]["text"] == "une phrase\n\nune autre phrase"
+    (tmp_path / "c.csv").write_text("\n\n", encoding="utf-8")
+    with pytest.raises(SkipFile):
+        extract_file(tmp_path / "c.csv")
+
+
 def test_extract_folder_reports_unsupported(tmp_path):
     (tmp_path / "a.txt").write_text("Bonjour.", encoding="utf-8")
     (tmp_path / "b.xlsx").write_bytes(b"x")
@@ -143,7 +167,7 @@ def test_extract_folder_reports_unsupported(tmp_path):
 
 def test_ingest_fixture_corpus():
     chunks, skipped, report = ingest(CORPUS)
-    assert report["n_documents"] == 15
+    assert report["n_documents"] == 17
     assert [p for p, _ in skipped] == ["cv/cv_scanne_agent_accueil.pdf"]
     text = "\n".join(chunks["text_raw"])
     for noise in ["Page 1 / 3", "Offre n° 2026-114", "thomas.fictif@example.org", "analytics"]:
