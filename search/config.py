@@ -36,6 +36,8 @@ EMBED_MAX_TOKENS = 1024
 EMBED_BATCH = 16         # fits BGE-M3 fp16 on a 6 GB GPU
 
 RERANK_MODEL = "BAAI/bge-reranker-v2-m3"
+RERANK_MAX_TOKENS = 1024  # query + chunk, same reasoning as EMBED_MAX_TOKENS
+RERANK_BATCH = 4          # 20 pairs per query in 5 batches: fits 6 GB with 1,024 tokens
 
 # --- Chunking ---------------------------------------------------------------
 CHUNK_MIN_WORDS = 200
@@ -48,12 +50,21 @@ CHUNK_TITLE_PREFIX = True
 BRANCH_TOP_K = 50        # candidates kept by each branch
 RERANK_TOP_K = 20        # chunks sent to the cross-encoder
 RESULTS_TOP_K = 10       # documents shown
-DEFAULT_ALPHA = 0.5      # weight of the semantic branch in fusion
+DEFAULT_ALPHA = 0.7      # weight of the semantic branch in fusion (tuned on 300 dev questions)
 
 # Typo correction: max Levenshtein distance by word length.
 TYPO_MIN_LEN = 4
 TYPO_MAX_DIST_SHORT = 1  # words of 4-7 letters
 TYPO_MAX_DIST_LONG = 2   # words of 8+ letters
+TYPO_MIN_FREQ = 2        # a correction target must appear at least twice in the corpus
+# False: the semantic branch embeds the original query (capitals lowered only). Correcting
+# helps BM25 (+2 nDCG points) but not the transformer, which reads typos itself (dev set).
+SEMANTIC_USES_CORRECTION = False
+TYPO_ACCENT_RATIO = 20   # "francaise" (in the corpus) -> "française" if 20x more frequent
+
+# Fusion: "weighted" (min-max + alpha, the main system S4) or "rrf" (comparison row).
+FUSION = "weighted"
+RRF_K = 60
 
 # --- Optional: course Chapter 3 components (see docs/plan_addendum.md) -------
 WORDNET_LANG = "fra"

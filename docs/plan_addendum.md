@@ -291,7 +291,24 @@ It made no measurable difference to the results, but no text is lost now.
 
 The team corpus (`data/corpus/divers/`) has its first 10 documents.
 
-## 2.12 Impact on the phases
+## 2.12 Phase 4 (core): done
+
+Hybrid fusion, reranker and typo correction, reviewed in `docs/phase4_review.md`. Tuned on
+the 300 dev questions:
+
+| System | Recall@10 | MRR@10 | nDCG@10 |
+|---|---|---|---|
+| S2 · BM25 + typo | 0.606 | 0.395 | 0.434 |
+| S3 · Semantic | 0.733 | 0.553 | 0.584 |
+| S4 · Hybrid RRF | 0.741 | 0.529 | 0.564 |
+| **S4 · Hybrid weighted, α = 0.7** | 0.765 | 0.573 | 0.605 |
+| **S5 · + reranker** | 0.787 | 0.584 | 0.622 |
+
+Decisions: **α = 0.7** (flat top 0.6–0.8; the plan's 0.5 is 2 points lower); weighted
+fusion over RRF; typo correction applied to the BM25 query only. WordNet and word2vec
+(optional) not started.
+
+## 2.13 Impact on the phases
 
 | Phase | Change |
 |---|---|

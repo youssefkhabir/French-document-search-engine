@@ -124,6 +124,10 @@ python scripts/build_index.py --model intfloat/multilingual-e5-small   # small m
 Build the BGE-M3 index on the GPU machine and share the `index/` folder: a CPU machine
 then only embeds the queries.
 
+Phase 4 adds `index/vocab.json`, the corpus words and their frequencies for typo
+correction. An index built before Phase 4 still works: the vocabulary is rebuilt from the
+chunks when the index loads.
+
 Optional per-folder metadata: a `.metadata.json` in any corpus folder can set a file's
 title and extra fields, e.g. `{"page.txt": {"title": "Les fractions", "subject": "math"}}`.
 
@@ -154,10 +158,15 @@ python -m pytest
 streamlit run app.py
 ```
 
-The page searches in TF-IDF, BM25 or semantic mode, with filters by collection and file
-type. It can open any index folder of the project (`index/`, or `index_test/` built with
-`--index`). The semantic mode needs an index built with embeddings. Hybrid and word2vec
-arrive in Phase 4.
+The page searches in TF-IDF, BM25, semantic or **hybrid** mode (BM25 + semantic, weighted
+fusion with α or RRF), with filters by collection and file type. Options:
+- **Corriger les fautes** (on by default): missing accents, typos within 1–2 edits of a
+  corpus word, and queries typed in capitals. The corrected query is shown.
+- **Reranker**: a cross-encoder (`bge-reranker-v2-m3`) reorders the top 20 documents.
+  The first use loads a 2.2 GB model.
+
+It can open any index folder of the project (`index/`, or `index_test/` built with
+`--index`). The semantic and hybrid modes need an index built with embeddings.
 
 ## Layout
 

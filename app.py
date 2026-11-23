@@ -1,7 +1,7 @@
 """Streamlit interface. Run: streamlit run app.py
 
-Phases 2-3: TF-IDF, BM25 and semantic (BGE-M3) modes, collection and file-type filters,
-snippets.
+Phases 2-4: TF-IDF, BM25, semantic (BGE-M3) and hybrid modes, reranker, typo correction,
+collection and file-type filters, snippets.
 The page calls engine.search(), the same function the evaluation uses.
 """
 import html
@@ -18,7 +18,8 @@ st.set_page_config(page_title="Moteur de recherche documentaire", layout="wide")
 
 MODE_LABELS = {"TF-IDF": "tfidf", "BM25": "bm25", "Sémantique": "semantic",
                "Hybride": "hybrid", "Word2vec (moyenne)": "word2vec"}
-MODE_PHASE = {"hybrid": 4, "word2vec": 4}
+MODE_PHASE = {"word2vec": 4}
+FUSION_LABELS = {"Pondérée (α)": "weighted", "RRF (rangs)": "rrf"}
 FORMAT_LABELS = {"pdf": "PDF", "docx": "Word", "txt": "Texte", "html": "HTML", "csv": "CSV"}
 SUBJECT_LABELS = {"chemistry": "Chimie", "contemporary_world": "Monde contemporain",
                   "english": "Anglais", "financial_ed": "Éducation financière",
@@ -78,10 +79,16 @@ with st.sidebar:
     chunks = idx["chunks"]
 
     st.subheader("Mode de recherche")
-    mode_label = st.radio("Mode", list(MODE_LABELS), index=1, label_visibility="collapsed")
+    default_mode = 3 if "hybrid" in idx["modes"] else 1
+    mode_label = st.radio("Mode", list(MODE_LABELS), index=default_mode,
+                          label_visibility="collapsed")
     mode = MODE_LABELS[mode_label]
+    fusion_label = st.radio("Fusion", list(FUSION_LABELS), horizontal=True,
+                            disabled=(mode != "hybrid"))
+    fusion_method = FUSION_LABELS[fusion_label]
     alpha = st.slider("Poids sémantique α", 0.0, 1.0, config.DEFAULT_ALPHA, 0.05,
-                      disabled=(mode != "hybrid"))
+                      disabled=(mode != "hybrid" or fusion_method != "weighted"),
+                      help="0 = BM25 seul, 1 = sémantique seul")
 
     st.subheader("Filtres")
     collections = sorted(chunks["collection"].unique())
@@ -94,9 +101,12 @@ with st.sidebar:
     top_k = st.slider("Nombre de résultats", 5, 30, config.RESULTS_TOP_K, 5)
 
     st.subheader("Options")
-    st.checkbox("Corriger les fautes (phase 4)", value=False, disabled=True)
+    typo_fix = st.checkbox("Corriger les fautes", value=True,
+                           help="Accents manquants, fautes de frappe, requête en majuscules")
     st.checkbox("Expansion WordNet (optionnel)", value=False, disabled=True)
-    st.checkbox("Reranker (phase 4)", value=False, disabled=True)
+    use_rerank = st.checkbox("Reranker (plus lent)", value=False,
+                             help=f"Réordonne les {config.RERANK_TOP_K} premiers documents "
+                                  "avec un cross-encoder")
 
     with st.expander("Corpus indexé"):
         meta = idx["meta"]
@@ -123,10 +133,19 @@ if query.strip():
                     "disponible. Reconstruisez-le sans `--no-embed`.")
         st.stop()
 
-    r = search(query, mode=mode, alpha=alpha, top_k=top_k, collections=chosen_collections,
-               formats=chosen_formats, index_dir=index_dir)
+    spinner = ("Chargement du reranker (une fois) et réordonnancement…" if use_rerank
+               else "Recherche…")
+    with st.spinner(spinner):
+        r = search(query, mode=mode, alpha=alpha, top_k=top_k, collections=chosen_collections,
+                   formats=chosen_formats, index_dir=index_dir, typo_fix=typo_fix,
+                   rerank=use_rerank, fusion_method=fusion_method)
     total_ms = sum(r["timings"].values())
-    matched = ("passages comparés" if mode == "semantic" else "passages correspondants")
+    if r["corrections"]:
+        st.markdown(f"Recherche corrigée : **{html.escape(r['corrected_query'])}**")
+        st.caption(" · ".join("requête en minuscules" if a == r["query"] else f"{a} → {b}"
+                              for a, b in r["corrections"]))
+    matched = {"semantic": "passages comparés",
+               "hybrid": "passages candidats (BM25 + sémantique)"}.get(mode, "passages correspondants")
     st.caption(f"{len(r['results'])} documents · {r['n_chunks_matched']} {matched} · "
                f"{total_ms:.0f} ms · forme lexicale : `{r['query_lex'] or '∅'}`")
 
@@ -143,5 +162,11 @@ if query.strip():
             subject = res["meta"].get("subject")
             if subject:
                 tags.append(SUBJECT_LABELS.get(subject, subject))
-            st.caption(" · ".join(tags) + f" · score {res['score']:.3f} · `{res['doc_id']}`")
+            if mode == "hybrid":
+                ranks = [f"BM25 #{res['rank_bm25']}" if res["rank_bm25"] else "BM25 —",
+                         f"sémantique #{res['rank_semantic']}" if res["rank_semantic"] else "sémantique —"]
+                tags.append(" / ".join(ranks))
+            score = (f"reranker {res['rerank_score']:.3f}" if res["rerank_score"] is not None
+                     else f"score {res['score']:.3f}")
+            st.caption(" · ".join(tags) + f" · {score} · `{res['doc_id']}`")
             st.markdown(highlight(res["snippet"], res["highlights"]), unsafe_allow_html=True)

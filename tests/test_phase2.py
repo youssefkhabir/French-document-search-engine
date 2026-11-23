@@ -127,8 +127,9 @@ def test_search_filters(index_dir):
 def test_search_no_match_and_unready_mode(index_dir):
     assert search("xyzzyq", mode="bm25", index_dir=index_dir)["results"] == []
     with pytest.raises(NotImplementedError):
-        search("test", mode="hybrid", index_dir=index_dir)
-    with pytest.raises(ValueError):                    # built with embed=False
-        search("test", mode="semantic", index_dir=index_dir)
+        search("test", mode="word2vec", index_dir=index_dir)
+    for mode in ("semantic", "hybrid"):                # built with embed=False
+        with pytest.raises(ValueError):
+            search("test", mode=mode, index_dir=index_dir)
     with pytest.raises(ValueError):
         search("test", mode="nope", index_dir=index_dir)
