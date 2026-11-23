@@ -22,3 +22,7 @@ nltk_data/
 
 # Downloaded benchmark data (rebuilt by scripts/fetch_alloprof.py)
 eval/alloprof/
+
+# Local test documents and test index
+test_docs/
+index_test/

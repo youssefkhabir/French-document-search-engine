@@ -33,7 +33,8 @@ def ingest(folder: Path) -> tuple[pd.DataFrame, list[tuple[str, str]], dict]:
     cleaned, removed = [], {}
     for doc_id, doc_pages in by_doc.items():
         doc_pages.sort(key=lambda p: p["page"])
-        texts, dropped = remove_repeated_lines([p["text"] for p in doc_pages])
+        paginated = doc_pages[0]["format"] == "pdf"
+        texts, dropped = remove_repeated_lines([p["text"] for p in doc_pages], paginated)
         if dropped:
             removed[doc_id] = dropped
         for p, text in zip(doc_pages, texts):

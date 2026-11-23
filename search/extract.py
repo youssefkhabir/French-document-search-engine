@@ -42,6 +42,8 @@ TXT_ENCODINGS = ("utf-8-sig", "cp1252", "latin-1")  # latin-1 never fails: last 
 # HTML elements that never hold document content.
 HTML_DROP = ["script", "style", "noscript", "nav", "footer", "aside", "form", "iframe",
              "svg", "button", "template"]
+# Elements hidden from the reader (CSS selector).
+HTML_HIDDEN = '[hidden], [aria-hidden="true"], [role="tooltip"]'
 # Inline elements unwrapped so a sentence with <strong> or <a> stays on one line.
 HTML_INLINE = ["a", "b", "strong", "i", "em", "u", "span", "small", "abbr", "code",
                "sup", "sub", "mark", "font"]
@@ -190,6 +192,11 @@ def _html(path: Path) -> tuple[str | None, list[str]]:
     title = soup.title.get_text(strip=True) if soup.title else None
     for tag in soup.find_all(HTML_DROP):
         tag.decompose()
+    # Content the page never shows as text: hidden blocks (feedback forms, error messages)
+    # and tooltips (Service-Public leaves a placeholder ": titleContent" in them).
+    for tag in soup.select(HTML_HIDDEN):
+        if not tag.decomposed:
+            tag.decompose()
     for tag in soup.find_all(HTML_INLINE):
         tag.unwrap()
     soup.smooth()  # merge the text pieces left side by side by unwrap()

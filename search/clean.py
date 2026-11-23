@@ -67,11 +67,13 @@ def _key(paragraph: str) -> str:
     return RE_SPACES.sub(" ", RE_DIGITS.sub("#", paragraph.lower())).strip()
 
 
-def remove_repeated_lines(pages: list[str]) -> tuple[list[str], list[str]]:
+def remove_repeated_lines(pages: list[str], paginated: bool = True) -> tuple[list[str], list[str]]:
     """Drop headers, footers and page numbers from the pages of ONE document.
 
     A paragraph is dropped when it is a bare page number, or when (digits ignored) it
     appears on at least 60% of the pages of a document with 2 pages or more.
+    `paginated=False` (TXT, DOCX, HTML, CSV: no real pages) keeps bare numbers, which
+    there are content such as a year on its own line ("1759").
     Returns (cleaned pages, removed paragraphs) — the second list feeds the report's
     before/after example.
     """
@@ -90,7 +92,7 @@ def remove_repeated_lines(pages: list[str]) -> tuple[list[str], list[str]]:
     for paras in split:
         kept = []
         for p in paras:
-            if _key(p) in repeated or RE_PAGE_NUMBER.match(p.strip()):
+            if _key(p) in repeated or (paginated and RE_PAGE_NUMBER.match(p.strip())):
                 removed.append(p.strip())
             else:
                 kept.append(p)

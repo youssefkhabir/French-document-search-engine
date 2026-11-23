@@ -49,6 +49,19 @@ def test_single_page_keeps_content_drops_page_number():
     assert kept == ["Titre\n\nTexte."] and removed == ["1"]
 
 
+def test_unpaginated_keeps_bare_numbers():
+    # A year alone on its line in a TXT/HTML file is content, not a page number.
+    kept, removed = remove_repeated_lines(["Candide\n\n1759\n\nChapitre premier."], paginated=False)
+    assert kept == ["Candide\n\n1759\n\nChapitre premier."] and removed == []
+
+
+def test_ingest_keeps_year_line_in_txt(tmp_path):
+    (tmp_path / "livre.txt").write_text("Candide, ou l'optimisme\n\n1759\n\nIl y avait en Vestphalie un jeune garçon.",
+                                        encoding="utf-8")
+    chunks, _, report = ingest(tmp_path)
+    assert "1759" in chunks["text_raw"].iloc[0]
+
+
 # --- sentences ---------------------------------------------------------------
 
 def test_split_sentences_french_abbreviations():
@@ -116,6 +129,16 @@ def test_html_drops_navigation_scripts_and_keeps_inline_text():
     text = extract_file(CORPUS / "offres" / "offre_developpeur_backend.html")[0]["text"]
     assert "Connexion" not in text and "dataLayer" not in text and "Offres similaires" not in text
     assert "Entreprise : Startup Fictive Mobilité, Lyon." in text
+
+
+def test_html_drops_hidden_blocks_and_tooltips(tmp_path):
+    (tmp_path / "p.html").write_text(
+        "<html><body><p>Le mineur et son <span><strong>représentant légal</strong>"
+        "<span role='tooltip'>: titleContent</span></span> vont en mairie.</p>"
+        "<div hidden><h2>Vos remarques pour améliorer la page</h2></div>"
+        "<p aria-hidden='true'>icône</p><p>Fin.</p></body></html>", encoding="utf-8")
+    text = extract_file(tmp_path / "p.html")[0]["text"]
+    assert text == "Le mineur et son représentant légal vont en mairie.\n\nFin."
 
 
 def test_txt_in_cp1252_is_decoded():
