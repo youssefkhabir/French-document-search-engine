@@ -1,15 +1,90 @@
 """The two functions everything calls. app.py and eval/run_eval.py both use `search`,
 so the system demonstrated is exactly the system measured.
 """
+import json
+import time
+from datetime import datetime
 from pathlib import Path
+
+import pandas as pd
+
+from search import config
+from search.chunk import chunk_pages
+from search.clean import clean_text, remove_repeated_lines
+from search.extract import extract_folder
 
 MODES = ("tfidf", "bm25", "semantic", "hybrid", "word2vec")  # word2vec = optional S6
 
 
-def build_index(folder: Path) -> dict:
+def ingest(folder: Path) -> tuple[pd.DataFrame, list[tuple[str, str]], dict]:
+    """Phase 1: extract -> remove headers/footers -> clean -> chunk.
+
+    Returns (chunks table, skipped files, report). The report keeps the removed
+    headers/footers per document for the before/after example in the report.
+    """
+    pages, skipped = extract_folder(folder)
+
+    by_doc: dict[str, list[dict]] = {}
+    for p in pages:
+        by_doc.setdefault(p["doc_id"], []).append(p)
+
+    cleaned, removed = [], {}
+    for doc_id, doc_pages in by_doc.items():
+        doc_pages.sort(key=lambda p: p["page"])
+        texts, dropped = remove_repeated_lines([p["text"] for p in doc_pages])
+        if dropped:
+            removed[doc_id] = dropped
+        for p, text in zip(doc_pages, texts):
+            text = clean_text(text)
+            if text:
+                cleaned.append({**p, "text": text})
+
+    chunks = pd.DataFrame(chunk_pages(cleaned),
+                          columns=["chunk_id", "doc_id", "title", "page", "n_words", "text_raw"])
+    report = {
+        "n_documents": chunks["doc_id"].nunique(),
+        "n_pages": len(pages),
+        "n_chunks": len(chunks),
+        "n_skipped": len(skipped),
+        "removed_headers_footers": removed,
+    }
+    return chunks, skipped, report
+
+
+def build_index(folder: Path | None = None, index_dir: Path | None = None) -> dict:
     """extract -> clean -> chunk -> lexical forms -> TF-IDF, BM25, embeddings,
-    vocabulary (+ optional word2vec) -> save to index/. Returns summary counts."""
-    raise NotImplementedError("Phases 1-3")
+    vocabulary (+ optional word2vec) -> save to index/. Returns summary counts.
+
+    Phase 1 implements the first step and writes chunks.parquet, skipped.json, meta.json.
+    """
+    folder = Path(folder or config.CORPUS_DIR)
+    index_dir = Path(index_dir or config.INDEX_DIR)
+    index_dir.mkdir(parents=True, exist_ok=True)
+
+    t0 = time.perf_counter()
+    chunks, skipped, report = ingest(folder)
+    if chunks.empty:
+        raise ValueError(f"no indexable document in {folder}")
+    chunks.to_parquet(index_dir / "chunks.parquet", index=False)
+    (index_dir / "skipped.json").write_text(
+        json.dumps([{"path": p, "reason": r} for p, r in skipped], ensure_ascii=False, indent=2),
+        encoding="utf-8")
+
+    # Phases 2-4 add: lexical forms, TF-IDF, BM25, embeddings, vocabulary, word2vec.
+
+    meta = {
+        "built_at": datetime.now().isoformat(timespec="seconds"),
+        "corpus": str(folder),
+        "n_documents": report["n_documents"],
+        "n_pages": report["n_pages"],
+        "n_chunks": report["n_chunks"],
+        "n_skipped": report["n_skipped"],
+        "chunk_words": {"max": config.CHUNK_MAX_WORDS, "overlap": config.CHUNK_OVERLAP_WORDS},
+        "seconds": round(time.perf_counter() - t0, 2),
+    }
+    (index_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2),
+                                         encoding="utf-8")
+    return {**meta, "skipped": skipped, "removed_headers_footers": report["removed_headers_footers"]}
 
 
 def search(query: str, mode: str = "hybrid", alpha: float = 0.5, rerank: bool = False,

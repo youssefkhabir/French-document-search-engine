@@ -9,8 +9,9 @@ data/corpus/*
 models/
 eval/results/
 
-# Course material and plan PDFs stay local
+# Course material and plan PDFs stay local (synthetic test PDFs are kept)
 *.pdf
+!tests/fixtures/**/*.pdf
 
 # Downloaded models, NLTK data, caches
 nltk_data/

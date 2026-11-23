@@ -17,3 +17,6 @@ psutil
 # Optional — course Chapter 3 components (WordNet expansion, word2vec baseline)
 nltk
 gensim
+
+# Tests
+pytest

@@ -1,4 +1,4 @@
-﻿altair==6.3.0
+altair==6.3.0
 annotated-doc==0.0.7
 annotated-types==0.8.0
 anyio==4.16.0
@@ -29,6 +29,7 @@ httpx==0.28.1
 httpx2==2.16.2
 huggingface-hub==2.4.0
 idna==3.20
+iniconfig==2.3.1
 itsdangerous==2.2.0
 jinja2==3.1.6
 joblib==1.6.0
@@ -49,6 +50,7 @@ packaging==26.3
 pandas==3.1.1
 pillow==13.0.0
 pip==26.3
+pluggy==1.7.0
 preshed==3.0.15
 protobuf==7.36.2
 psutil==7.2.2
@@ -60,6 +62,7 @@ pygments==2.21.0
 pymupdf==2.1
 pymupdf-layout==2.1
 pymupdf4llm==2.1
+pytest==9.2.0
 python-dateutil==4.0.0
 python-docx==1.2.0
 python-multipart==0.0.34
