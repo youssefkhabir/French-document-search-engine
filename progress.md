@@ -1,9 +1,9 @@
 # Progress
 
 **Project:** Moteur de recherche documentaire intelligent (French semantic search, TALN course)
-**Last update:** 23 November 2026, end of day
-**Last commit:** `7c01d0e` on `main`, pushed to GitHub
-**Tests:** 96 pass (`python -m pytest`)
+**Last update:** 24 November 2026
+**Last commit:** `e6ddf6e` on `main` (today's work not committed yet)
+**Tests:** 104 pass (`python -m pytest`)
 
 ---
 
@@ -15,8 +15,8 @@
 | 1 · Extraction, cleaning, chunking | ✅ Done, plus fixes from real web documents | `docs/phase1_review.md` |
 | 2 · Lexical branch (TF-IDF, BM25) and first page | ✅ Done | `docs/phase2_review.md` |
 | 3 · Semantic branch (BGE-M3) | ✅ Done | `docs/phase3_review.md` |
-| 4 · Hybrid fusion, reranker, typo correction | ✅ Core done · ⏳ WordNet and word2vec (optional) not started | `docs/phase4_review.md` |
-| 5 · Evaluation and report | ⏳ Not started | — |
+| 4 · Hybrid fusion, reranker, typo correction | ✅ Core done · ✅ WordNet · ⏳ word2vec (optional) not started | `docs/phase4_review.md` |
+| 5 · Evaluation and report | 🔄 Metrics and `eval/run_eval.py` done; test-set run not started | — |
 
 Decisions that override the original plan are in `docs/plan_addendum.md`.
 
@@ -34,6 +34,7 @@ Tuning set only. The 2,281 test questions are kept for Phase 5.
 | S4 · Hybrid, RRF | 0.741 | 0.529 | 0.564 |
 | **S4 · Hybrid, weighted α = 0.7** | **0.765** | **0.573** | **0.605** |
 | **S5 · Hybrid + reranker** | **0.787** | **0.584** | **0.622** |
+| S2 + WordNet (k=1, originals ×2) | 0.598 | — | 0.436 |
 
 Main findings to keep for the report:
 - The semantic branch is the big step (+15 nDCG points over the lexical modes). It handles
@@ -45,6 +46,8 @@ Main findings to keep for the report:
 - Typo correction helps the lexical modes (+2 points), not the semantic one.
 - TF-IDF is slightly ahead of BM25 on these chatty student questions. To confirm on the
   test set.
+- WordNet expansion is neutral at best (k=1) and hurts with more synonyms (−8.7 points at
+  k=3): polysemy, and the semantic branch already covers synonymy.
 - Cutting chunks at 512 tokens (7% of Alloprof chunks, because of LaTeX) made no measurable
   difference; the cap is 1,024 now anyway.
 
@@ -68,13 +71,14 @@ Rebuild the index after changing the corpus: `python scripts/build_index.py`.
 ## Next steps
 
 ### Phase 4, optional (Chapter 3 of the course)
-- [ ] **WordNet query expansion** (`search/wordnet_expand.py`): French synonyms from Open
-      Multilingual WordNet added to the BM25 query. Measure BM25 vs BM25 + WordNet; add a
-      few Wu–Palmer examples for the report.
+- [x] **WordNet query expansion** (`search/wordnet_expand.py`): done, measured, Wu–Palmer
+      examples in `docs/phase4_review.md` §3b.
 - [ ] **Averaged word2vec, S6** (`search/word2vec.py`): gensim trained on the lexical forms;
       one more row between BM25 and the transformer.
 
 ### Phase 5: evaluation and report
+- [x] `eval/metrics.py` (Recall, MRR, nDCG by hand) and `eval/run_eval.py`
+      (`python -m eval.run_eval --split dev --systems S1 S2 S3 S4`); reproduces the dev table.
 - [ ] `eval/run_eval.py` on the **2,281 test questions**: S1 to S5 (and S6), Recall@10,
       MRR@10, nDCG@10, per subject.
 - [ ] Paired significance test (Wilcoxon or bootstrap): S4 vs S3, S5 vs S4, BM25 vs TF-IDF.

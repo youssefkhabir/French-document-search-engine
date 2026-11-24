@@ -126,6 +126,41 @@ branch gets the user's own words. `SEMANTIC_USES_CORRECTION = False`.
 
 ---
 
+## 3b. `wordnet_expand.py` — WordNet query expansion (optional, course Ch. 3)
+
+Added on 24 November 2026. French synonyms from Open Multilingual WordNet are added to the
+lexical query (TF-IDF, BM25, and the BM25 branch of the hybrid). The semantic branch never
+sees them. Checkbox "Expansion WordNet" in the page; the synonyms used are shown under the query.
+
+**Noise filters.** French WordNet translates the English synsets, so every word drags in
+loose senses (*travailler → accouchement*, *calculer → comte*, *cellule → prison*). Kept:
+synsets of the word's part of speech only (spaCy NOUN/VERB/ADJ); candidates ranked by how
+many of the word's senses share them; no multi-word entries, proper names or stopwords;
+only terms the index contains. Original terms are repeated so they outweigh the synonyms
+(bm25s counts a repeated term again: checked, the score doubles).
+
+**Results on the 300 dev questions (BM25 + typo, nDCG@10; baseline 0.434):**
+
+| synonyms per word k | originals ×1 | ×2 | ×3 | ×4 |
+|---|---|---|---|---|
+| 1 | 0.407 | **0.436** | 0.435 | 0.435 |
+| 2 | 0.364 | 0.421 | 0.430 | 0.432 |
+| 3 | 0.347 | 0.414 | 0.424 | 0.431 |
+
+- **WordNet does not help on Alloprof.** The best setting (k = 1, ×2, now the default) is
+  neutral (+0.2 point, noise); more synonyms hurt steadily, down to −8.7 points.
+- In the hybrid (k = 1, ×3): 0.609 vs 0.605, also noise. The semantic branch already
+  covers synonymy, better and in context.
+- Why: polysemy (the course's *souris* problem), and school vocabulary is precise: a page
+  about *fractions* never says *portion*. This is the risk the addendum predicted, and a
+  valid result for the report.
+
+**Wu–Palmer examples** (max over synset pairs, `wu_palmer_fr`): guerre/conflit 1.00,
+voiture/camion 0.92, chat/chien 0.86, cellule/organisme 0.83, fraction/nombre 0.71,
+développeur/ingénieur 0.71.
+
+---
+
 ## 4. `fusion.py`
 
 ### Weighted fusion (S4, the main system)

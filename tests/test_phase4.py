@@ -152,3 +152,41 @@ def test_no_snippets_option(index_dir):
 def test_unknown_fusion(index_dir):
     with pytest.raises(ValueError):
         search("test", mode="hybrid", fusion_method="max", index_dir=index_dir)
+
+
+# --- WordNet expansion (optional, course Ch. 3) ----------------------------------------
+
+from search import wordnet_expand  # noqa: E402
+
+
+def test_wordnet_synonyms_respect_pos_and_filters():
+    syns = wordnet_expand.synonyms_fr("voiture", 5, pos="NOUN")
+    assert "automobile" in syns
+    assert all("_" not in s and s.islower() for s in syns)
+    assert wordnet_expand.synonyms_fr("voiture", 5, pos="NOUN", known=lambda f: False) == []
+    assert len(wordnet_expand.synonyms_fr("travailler", 2, pos="VERB")) <= 2
+
+
+def test_wordnet_expand_query_repeats_originals():
+    q, added = wordnet_expand.expand_query("une voiture", max_terms=1, original_repeat=2,
+                                           known=lambda f: f == "automobile")
+    assert added == {"voiture": ["automobile"]}
+    assert q.split() == ["voiture", "voiture", "automobile"]
+    q, added = wordnet_expand.expand_query("xyzwvut", max_terms=2, original_repeat=2)
+    assert added == {}
+
+
+def test_wu_palmer():
+    assert wordnet_expand.wu_palmer_fr("guerre", "conflit") == 1.0
+    assert 0 < wordnet_expand.wu_palmer_fr("voiture", "camion") < 1
+    assert wordnet_expand.wu_palmer_fr("xyzwvut", "voiture") is None
+
+
+def test_search_with_wordnet(tmp_path):
+    build_index(CORPUS, tmp_path, embed=False)
+    plain = search("développeur", mode="bm25", index_dir=tmp_path)
+    r = search("développeur", mode="bm25", wordnet=True, index_dir=tmp_path)
+    assert "expansions" in r and r["results"]
+    assert r["query_lex"].startswith(plain["query_lex"])
+    sem_free = search("développeur", mode="tfidf", wordnet=True, index_dir=tmp_path)
+    assert sem_free["results"]

@@ -103,7 +103,9 @@ with st.sidebar:
     st.subheader("Options")
     typo_fix = st.checkbox("Corriger les fautes", value=True,
                            help="Accents manquants, fautes de frappe, requête en majuscules")
-    st.checkbox("Expansion WordNet (optionnel)", value=False, disabled=True)
+    use_wordnet = st.checkbox("Expansion WordNet", value=False, disabled=(mode == "semantic"),
+                              help="Ajoute des synonymes WordNet à la requête BM25 / TF-IDF "
+                                   "(sans effet mesurable sur Alloprof)")
     use_rerank = st.checkbox("Reranker (plus lent)", value=False,
                              help=f"Réordonne les {config.RERANK_TOP_K} premiers documents "
                                   "avec un cross-encoder")
@@ -138,12 +140,15 @@ if query.strip():
     with st.spinner(spinner):
         r = search(query, mode=mode, alpha=alpha, top_k=top_k, collections=chosen_collections,
                    formats=chosen_formats, index_dir=index_dir, typo_fix=typo_fix,
-                   rerank=use_rerank, fusion_method=fusion_method)
+                   rerank=use_rerank, fusion_method=fusion_method, wordnet=use_wordnet)
     total_ms = sum(r["timings"].values())
     if r["corrections"]:
         st.markdown(f"Recherche corrigée : **{html.escape(r['corrected_query'])}**")
         st.caption(" · ".join("requête en minuscules" if a == r["query"] else f"{a} → {b}"
                               for a, b in r["corrections"]))
+    if r.get("expansions"):
+        st.caption("Synonymes WordNet : " + " · ".join(
+            f"{w} → {', '.join(s)}" for w, s in r["expansions"].items()))
     matched = {"semantic": "passages comparés",
                "hybrid": "passages candidats (BM25 + sémantique)"}.get(mode, "passages correspondants")
     st.caption(f"{len(r['results'])} documents · {r['n_chunks_matched']} {matched} · "

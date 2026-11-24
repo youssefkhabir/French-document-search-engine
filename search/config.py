@@ -68,7 +68,9 @@ RRF_K = 60
 
 # --- Optional: course Chapter 3 components (see docs/plan_addendum.md) -------
 WORDNET_LANG = "fra"
-WORDNET_MAX_EXPANSIONS = 3     # new terms per query word
+# Tuned on the 300 dev questions: more synonyms always hurt BM25 (k=3, repeat 1: -8.7 nDCG
+# points); k=1 with originals x2 is neutral (0.436 vs 0.434). See docs/phase4_review.md.
+WORDNET_MAX_EXPANSIONS = 1     # new terms per query word
 WORDNET_ORIGINAL_REPEAT = 2    # repeat original terms to keep them dominant
 
 W2V_DIM = 100

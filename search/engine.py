@@ -10,7 +10,7 @@ import pandas as pd
 
 import numpy as np
 
-from search import config, fusion, lexical, semantic, spelling
+from search import config, fusion, lexical, semantic, spelling, wordnet_expand
 from search import rerank as rerank_mod
 from search.chunk import chunk_pages
 from search.clean import clean_text, remove_repeated_lines
@@ -19,6 +19,7 @@ from search.extract import extract_folder
 MODES = ("tfidf", "bm25", "semantic", "hybrid", "word2vec")  # word2vec = optional S6
 MODES_READY = ("tfidf", "bm25", "semantic", "hybrid")         # grows with each phase
 NEEDS_EMBEDDINGS = ("semantic", "hybrid")
+LEXICAL_MODES = ("tfidf", "bm25", "hybrid")  # modes WordNet expansion applies to
 SNIPPET_WORDS = 45
 CHUNK_COLUMNS = ["chunk_id", "doc_id", "collection", "format", "title", "page", "n_words",
                  "text_raw", "text_index", "meta"]
@@ -222,13 +223,14 @@ def search(query: str, mode: str = "hybrid", alpha: float | None = None, rerank:
     rerank: reorder the best chunk of the top RERANK_TOP_K documents with the cross-encoder.
     typo_fix: correct the query against the corpus vocabulary first (spelling.py).
     snippets: False skips the snippets (the evaluation only needs the ranking).
-    WordNet expansion is optional (Phase 4 stretch) and ignored for now.
+    wordnet: add French WordNet synonyms to the lexical query (tfidf, bm25 and hybrid's
+        BM25 branch); the semantic branch never sees them.
 
     Single modes rank every chunk the filters allow (a long document cannot crowd out the
     others). Hybrid fuses the top BRANCH_TOP_K chunks of each branch, as the plan says:
     min-max over a branch's whole score range would squash the scores that matter.
 
-    Returns {"query", "query_lex", "corrected_query", "corrections", "mode", "alpha",
+    Returns {"query", "query_lex", "corrected_query", "corrections", "expansions", "mode", "alpha",
         "fusion", "reranked", "n_chunks_matched",
         "results": [{"doc_id", "title", "collection", "format", "page", "score", "snippet",
                      "highlights", "chunk_id", "meta", "rank_bm25", "rank_semantic",
@@ -260,6 +262,15 @@ def search(query: str, mode: str = "hybrid", alpha: float | None = None, rerank:
 
     t = time.perf_counter()
     query_lex = lexical.lexical_prep(corrected)
+    # The lexical branches search `lex_query`: the plain lexical form, or with WordNet the
+    # expanded one (originals repeated + synonyms the index contains).
+    lex_query, expansions = query_lex, {}
+    if wordnet and mode in LEXICAL_MODES:
+        vocab = idx["bm25"].vocab_dict
+        lex_query, expansions = wordnet_expand.expand_query(corrected, known=vocab.__contains__)
+        if expansions:
+            added = sorted({lexical.strip_accents(t) for ts in expansions.values() for t in ts})
+            query_lex = query_lex + " + " + " ".join(added)
     timings["prep"] = _ms(t)
 
     if mode in NEEDS_EMBEDDINGS:
@@ -279,13 +290,13 @@ def search(query: str, mode: str = "hybrid", alpha: float | None = None, rerank:
     lex_hits = sem_hits = None
     if mode == "tfidf":
         vectorizer, matrix = idx["tfidf"]
-        hits = lexical.search_tfidf(query_lex, vectorizer, matrix, n_all, mask)
+        hits = lexical.search_tfidf(lex_query, vectorizer, matrix, n_all, mask)
     elif mode == "bm25":
-        hits = lex_hits = lexical.search_bm25(query_lex, idx["bm25"], n_all, mask)
+        hits = lex_hits = lexical.search_bm25(lex_query, idx["bm25"], n_all, mask)
     elif mode == "semantic":
         hits = sem_hits = semantic.search_semantic(q_vec, E, n_all, mask)
     else:
-        lex_hits = lexical.search_bm25(query_lex, idx["bm25"], config.BRANCH_TOP_K, mask)
+        lex_hits = lexical.search_bm25(lex_query, idx["bm25"], config.BRANCH_TOP_K, mask)
         sem_hits = semantic.search_semantic(q_vec, E, config.BRANCH_TOP_K, mask)
     timings["search"] = _ms(t)
 
@@ -313,7 +324,7 @@ def search(query: str, mode: str = "hybrid", alpha: float | None = None, rerank:
     bm25_ranks = _doc_ranks(lex_hits, chunks) if lex_hits is not None else {}
     sem_ranks = _doc_ranks(sem_hits, chunks) if sem_hits is not None else {}
     t = time.perf_counter()
-    terms = set(query_lex.split())
+    terms = set(lex_query.split())
     results = []
     for row, score in docs:
         c = chunks.iloc[row]
@@ -330,7 +341,7 @@ def search(query: str, mode: str = "hybrid", alpha: float | None = None, rerank:
     timings["snippets"] = _ms(t)
 
     return {"query": query, "query_lex": query_lex, "corrected_query": corrected,
-            "corrections": corrections, "mode": mode,
+            "corrections": corrections, "expansions": expansions, "mode": mode,
             "alpha": alpha if mode == "hybrid" and fusion_method == "weighted" else None,
             "fusion": fusion_method if mode == "hybrid" else None, "reranked": bool(rerank),
             "n_chunks_matched": len(hits), "results": results, "timings": timings}
