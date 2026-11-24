@@ -124,10 +124,9 @@ def test_search_filters(index_dir):
     assert all(x["collection"] == "divers" for x in r["results"])
 
 
-def test_search_no_match_and_unready_mode(index_dir):
+def test_search_no_match_and_bad_mode(index_dir):
     assert search("xyzzyq", mode="bm25", index_dir=index_dir)["results"] == []
-    with pytest.raises(NotImplementedError):
-        search("test", mode="word2vec", index_dir=index_dir)
+    assert search("xyzzyq", mode="word2vec", index_dir=index_dir)["results"] == []
     for mode in ("semantic", "hybrid"):                # built with embed=False
         with pytest.raises(ValueError):
             search("test", mode=mode, index_dir=index_dir)

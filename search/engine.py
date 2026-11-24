@@ -10,14 +10,14 @@ import pandas as pd
 
 import numpy as np
 
-from search import config, fusion, lexical, semantic, spelling, wordnet_expand
+from search import config, fusion, lexical, semantic, spelling, word2vec, wordnet_expand
 from search import rerank as rerank_mod
 from search.chunk import chunk_pages
 from search.clean import clean_text, remove_repeated_lines
 from search.extract import extract_folder
 
 MODES = ("tfidf", "bm25", "semantic", "hybrid", "word2vec")  # word2vec = optional S6
-MODES_READY = ("tfidf", "bm25", "semantic", "hybrid")         # grows with each phase
+MODES_READY = MODES
 NEEDS_EMBEDDINGS = ("semantic", "hybrid")
 LEXICAL_MODES = ("tfidf", "bm25", "hybrid")  # modes WordNet expansion applies to
 SNIPPET_WORDS = 45
@@ -93,6 +93,10 @@ def build_index(folder: Path | None = None, index_dir: Path | None = None, embed
     lexical.save_bm25(lexical.build_bm25(chunks["text_lex"].tolist()), index_dir / "bm25")
     lexical_seconds = round(time.perf_counter() - t_lex, 2)
 
+    # Optional S6 · word2vec trained on the same lexical forms (seconds).
+    kv, W, w2v_info = word2vec.build(chunks["text_lex"].tolist())
+    word2vec.save(kv, W, w2v_info, index_dir)
+
     # Phase 3 · embeddings. A lexical-only build removes stale ones so they can't be
     # paired with chunks they don't belong to.
     embeddings_info = None
@@ -120,6 +124,7 @@ def build_index(folder: Path | None = None, index_dir: Path | None = None, embed
         "title_prefix": config.CHUNK_TITLE_PREFIX,
         "lexical": {"vocabulary": len(vectorizer.vocabulary_), "seconds": lexical_seconds},
         "embeddings": embeddings_info,
+        "word2vec": w2v_info,
         "spelling_vocabulary": len(vocab),
         "seconds": round(time.perf_counter() - t0, 2),
     }
@@ -172,6 +177,14 @@ def load_index(index_dir: Path | None = None) -> dict:
     vocab = (spelling.load_vocabulary(vocab_path) if vocab_path.exists()
              else spelling.build_vocabulary(chunks["text_raw"].tolist()))
     loaded["speller"] = spelling.Speller(vocab)
+    # word2vec (S6). Indexes built before it have no w2v files: trained here once and saved.
+    texts_lex = chunks["text_lex"].tolist()
+    w2v = word2vec.load(index_dir)
+    if w2v is None or len(w2v[1]) != len(chunks):
+        w2v = word2vec.build(texts_lex)
+        word2vec.save(*w2v, index_dir)
+    loaded["w2v"] = w2v
+    loaded["w2v_idf"] = word2vec.idf_weights(texts_lex) if w2v[2]["idf_weighted"] else None
     _INDEX_CACHE[key] = loaded
     return loaded
 
@@ -217,7 +230,8 @@ def search(query: str, mode: str = "hybrid", alpha: float | None = None, rerank:
            snippets: bool = True) -> dict:
     """correct -> branch search -> fusion -> rerank -> group by document.
 
-    mode: "tfidf", "bm25", "semantic" or "hybrid" (BM25 + semantic, fused).
+    mode: "tfidf", "bm25", "semantic", "hybrid" (BM25 + semantic, fused) or "word2vec"
+        (S6: averaged static word vectors over the lexical form).
     alpha: weight of the semantic branch in weighted fusion (default config.DEFAULT_ALPHA).
     fusion_method: "weighted" or "rrf" (default config.FUSION).
     rerank: reorder the best chunk of the top RERANK_TOP_K documents with the cross-encoder.
@@ -295,6 +309,10 @@ def search(query: str, mode: str = "hybrid", alpha: float | None = None, rerank:
         hits = lex_hits = lexical.search_bm25(lex_query, idx["bm25"], n_all, mask)
     elif mode == "semantic":
         hits = sem_hits = semantic.search_semantic(q_vec, E, n_all, mask)
+    elif mode == "word2vec":
+        kv, W, _ = idx["w2v"]
+        hits = word2vec.search_w2v(word2vec.doc_vector(kv, query_lex, idx["w2v_idf"]), W,
+                                   n_all, mask)
     else:
         lex_hits = lexical.search_bm25(lex_query, idx["bm25"], config.BRANCH_TOP_K, mask)
         sem_hits = semantic.search_semantic(q_vec, E, config.BRANCH_TOP_K, mask)

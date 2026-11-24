@@ -4,6 +4,7 @@ Usage:
     python -m eval.run_eval --dataset alloprof --split dev
     python -m eval.run_eval --dataset alloprof --split test --systems S1 S2 S3 S4 S5
     python -m eval.run_eval --dataset team                   # eval/queries.json + qrels.csv
+    python -m eval.run_eval --split test --sample 100        # seeded random 100 test questions
 
 Writes eval/results/<dataset>_<split>/:
     per_query.csv   one row per (system, query): the three metrics + rank of first relevant
@@ -13,6 +14,7 @@ Writes eval/results/<dataset>_<split>/:
 """
 import argparse
 import json
+import random
 import sys
 import time
 from pathlib import Path
@@ -25,6 +27,7 @@ from search.engine import load_index, search  # noqa: E402
 from eval import metrics  # noqa: E402
 
 K = 10
+SAMPLE_SEED = 42
 
 # The systems of the report. S1 has no typo correction: it is the plain baseline.
 SYSTEMS: dict[str, dict] = {
@@ -56,6 +59,16 @@ def load_queries(dataset: str, split: str | None) -> tuple[list[dict], dict[str,
     for row in pd.read_csv(r_path).itertuples(index=False):
         qrels.setdefault(str(row.qid), {})[str(row.doc_id)] = int(row.grade)
     return queries, qrels, group_key
+
+
+def sample_queries(queries: list[dict], qrels: dict[str, dict[str, int]], n: int,
+                   seed: int = SAMPLE_SEED) -> list[dict]:
+    """n judged queries drawn at random (fixed seed), kept in their file order."""
+    judged = [q for q in queries if metrics.has_relevant(qrels.get(q["qid"], {}))]
+    if n >= len(judged):
+        return judged
+    keep = set(q["qid"] for q in random.Random(seed).sample(judged, n))
+    return [q for q in judged if q["qid"] in keep]
 
 
 def run_system(name: str, queries: list[dict], qrels: dict[str, dict[str, int]],
@@ -109,11 +122,15 @@ def main() -> None:
     p.add_argument("--systems", nargs="+", default=DEFAULT_SYSTEMS, choices=SYSTEMS)
     p.add_argument("--index", default=None, help="index folder (default config.INDEX_DIR)")
     p.add_argument("--limit", type=int, default=None, help="first N queries only (quick check)")
+    p.add_argument("--sample", type=int, default=None,
+                   help=f"N judged queries at random (seed {SAMPLE_SEED})")
     p.add_argument("--out", default=None, help="output folder")
     args = p.parse_args()
 
     split = None if args.split == "all" else args.split
     queries, qrels, group_key = load_queries(args.dataset, split)
+    if args.sample:
+        queries = sample_queries(queries, qrels, args.sample)
     if args.limit:
         queries = queries[:args.limit]
     n_judged = sum(metrics.has_relevant(qrels.get(q["qid"], {})) for q in queries)
@@ -122,7 +139,8 @@ def main() -> None:
 
     index_dir = Path(args.index) if args.index else None
     load_index(index_dir)  # load once, outside the timings
-    out = Path(args.out or config.EVAL_DIR / "results" / f"{args.dataset}_{args.split}")
+    name = f"{args.dataset}_{args.split}" + (f"_sample{args.sample}" if args.sample else "")
+    out = Path(args.out or config.EVAL_DIR / "results" / name)
     out.mkdir(parents=True, exist_ok=True)
 
     frames = []

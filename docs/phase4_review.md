@@ -161,6 +161,46 @@ développeur/ingénieur 0.71.
 
 ---
 
+## 3c. `word2vec.py` — averaged word2vec, S6 (optional, course Ch. 3)
+
+Added on 24 November 2026. Skip-gram (dim 100, window 5, min_count 2, 10 epochs, seed 42)
+trained on the lexical forms of the 10,295 chunks: 29,003 words in 18 s, saved as
+`index/w2v.kv` + `index/w2v_matrix.npy` by `build_index`. An index built before S6 gets
+the files on its first load. Chunk and query vector = IDF-weighted mean of the word
+vectors; cosine; top-k. Mode "Word2vec (moyenne)" in the page.
+
+**Results on the 300 dev questions:**
+
+| System | Recall@10 | MRR@10 | nDCG@10 | ms / query |
+|---|---|---|---|---|
+| S6 · word2vec, plain mean | 0.367 | 0.215 | 0.241 | 14 |
+| **S6 · word2vec, IDF-weighted mean** (default) | **0.395** | **0.250** | **0.273** | 14 |
+| S2 · BM25 + typo (reference) | 0.606 | 0.395 | 0.434 | 10 |
+
+- **S6 is the weakest system**, 16 points under BM25. The addendum expected it between
+  BM25 and the transformer; on Alloprof it is below both.
+- IDF weighting adds 3.2 points: in a plain mean, frequent generic words ("faire",
+  "exemple") pull every vector toward the same centre.
+- It is still complementary: of the 300 questions, word2vec finds a relevant page in the
+  top 10 for **12 that BM25 misses**, mostly long, chatty questions with no exact keyword
+  ("une idée d'amélioration de laboratoire"). BM25 finds 74 that word2vec misses.
+- Why so weak: averaging a whole chunk (~250 words) blurs it into "topic of the page", and
+  a question's few precise words are drowned the same way. Vectors trained on 2,360 pages
+  are also thin. Pretrained French vectors (`W2V_PRETRAINED_PATH`) were not tried: their
+  keys are raw accented words, ours are accent-free lemmas.
+
+**Nearest neighbours** (`word2vec.neighbours`, report: distributional hypothesis). They
+show *relatedness*, not synonymy, unlike WordNet:
+- fraction → dénominateur 0.86, numérateur 0.83, irréductible 0.82, fractionnaire 0.81
+- verbe → conjuguer 0.78, infinitif 0.78, attributif 0.76, pronominal 0.75
+- cellule → cellulaire 0.80, chloroplaste 0.73, membrane 0.73, cytoplasme 0.72
+- photosynthèse → respiration 0.86, chlorophylle 0.84, chloroplaste 0.84
+- guerre → mondial 0.76, ukraine 0.70, 1914 0.69
+- LaTeX fragments show up as neighbours too (`|(	ext{h}_2	ext{o})|`): the known
+  Alloprof LaTeX limitation.
+
+---
+
 ## 4. `fusion.py`
 
 ### Weighted fusion (S4, the main system)

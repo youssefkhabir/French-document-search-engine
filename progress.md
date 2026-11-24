@@ -2,8 +2,8 @@
 
 **Project:** Moteur de recherche documentaire intelligent (French semantic search, TALN course)
 **Last update:** 24 November 2026
-**Last commit:** `e6ddf6e` on `main` (today's work not committed yet)
-**Tests:** 104 pass (`python -m pytest`)
+**Last commit:** see `git log` (`main`, local commits not pushed)
+**Tests:** 111 pass (`python -m pytest`)
 
 ---
 
@@ -15,8 +15,8 @@
 | 1 · Extraction, cleaning, chunking | ✅ Done, plus fixes from real web documents | `docs/phase1_review.md` |
 | 2 · Lexical branch (TF-IDF, BM25) and first page | ✅ Done | `docs/phase2_review.md` |
 | 3 · Semantic branch (BGE-M3) | ✅ Done | `docs/phase3_review.md` |
-| 4 · Hybrid fusion, reranker, typo correction | ✅ Core done · ✅ WordNet · ⏳ word2vec (optional) not started | `docs/phase4_review.md` |
-| 5 · Evaluation and report | 🔄 Metrics and `eval/run_eval.py` done; test-set run not started | — |
+| 4 · Hybrid fusion, reranker, typo correction | ✅ Done, including optional WordNet and word2vec | `docs/phase4_review.md` |
+| 5 · Evaluation and report | ✅ Done on Alloprof (100 test questions) · ⏳ team corpus part waits for its queries | `docs/phase5_review.md` |
 
 Decisions that override the original plan are in `docs/plan_addendum.md`.
 
@@ -35,6 +35,7 @@ Tuning set only. The 2,281 test questions are kept for Phase 5.
 | **S4 · Hybrid, weighted α = 0.7** | **0.765** | **0.573** | **0.605** |
 | **S5 · Hybrid + reranker** | **0.787** | **0.584** | **0.622** |
 | S2 + WordNet (k=1, originals ×2) | 0.598 | — | 0.436 |
+| S6 · word2vec, IDF-weighted mean | 0.395 | 0.250 | 0.273 |
 
 Main findings to keep for the report:
 - The semantic branch is the big step (+15 nDCG points over the lexical modes). It handles
@@ -48,6 +49,9 @@ Main findings to keep for the report:
   test set.
 - WordNet expansion is neutral at best (k=1) and hurts with more synonyms (−8.7 points at
   k=3): polysemy, and the semantic branch already covers synonymy.
+- Averaged word2vec (S6) is the weakest system (0.273), 16 points under BM25, but finds 12
+  questions BM25 misses. Its neighbours show relatedness (fraction → dénominateur), not
+  synonymy.
 - Cutting chunks at 512 tokens (7% of Alloprof chunks, because of LaTeX) made no measurable
   difference; the cap is 1,024 now anyway.
 
@@ -73,18 +77,21 @@ Rebuild the index after changing the corpus: `python scripts/build_index.py`.
 ### Phase 4, optional (Chapter 3 of the course)
 - [x] **WordNet query expansion** (`search/wordnet_expand.py`): done, measured, Wu–Palmer
       examples in `docs/phase4_review.md` §3b.
-- [ ] **Averaged word2vec, S6** (`search/word2vec.py`): gensim trained on the lexical forms;
-      one more row between BM25 and the transformer.
+- [x] **Averaged word2vec, S6** (`search/word2vec.py`): done, measured, neighbours in
+      `docs/phase4_review.md` §3c. Below BM25, not between BM25 and the transformer.
 
 ### Phase 5: evaluation and report
-- [x] `eval/metrics.py` (Recall, MRR, nDCG by hand) and `eval/run_eval.py`
-      (`python -m eval.run_eval --split dev --systems S1 S2 S3 S4`); reproduces the dev table.
-- [ ] `eval/run_eval.py` on the **2,281 test questions**: S1 to S5 (and S6), Recall@10,
-      MRR@10, nDCG@10, per subject.
-- [ ] Paired significance test (Wilcoxon or bootstrap): S4 vs S3, S5 vs S4, BM25 vs TF-IDF.
-- [ ] Ablations: title prefix on/off, lemmas vs raw words, stopwords on/off.
-- [ ] Error analysis: five failures, from both collections.
-- [ ] Report section mapping each course concept to its module.
+- [x] `eval/metrics.py`, `eval/run_eval.py` (`--sample 100`), `eval/significance.py`,
+      `eval/ablations.py`.
+- [x] All systems on **100 test questions** (seeded sample, team decision instead of 2,281):
+      S5 0.587, S4 0.576, S3 0.561, S1 0.442, S2 0.427, S2W 0.424, S6 0.330 nDCG@10.
+- [x] Significance: only semantic vs BM25 (+13.4) and word2vec vs BM25 (−9.7) are
+      significant on 100 questions; hybrid, reranker, TF-IDF vs BM25 are not.
+- [x] Ablations: stopwords −7/−8, lemmas −1.4/−3.7, title prefix −1.5 (BM25) and −4.3 (semantic).
+- [x] Error analysis: five Alloprof failures. Team-corpus failures wait for its queries.
+- [x] Course concept map: `docs/phase5_review.md` §6.
+- [ ] Optional: full 2,281 test run (~25 min) to settle the 1–2-point effects.
+- [ ] Team corpus evaluation (`python -m eval.run_eval --dataset team`) once judged.
 
 ### Team work (data track)
 - [ ] Collect **50–100 documents** for `data/corpus/divers/`, from 5–8 themes, in the five

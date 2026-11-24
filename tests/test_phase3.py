@@ -113,4 +113,4 @@ def test_lexical_only_rebuild_removes_stale_embeddings(tmp_path):
     assert (d / "embeddings.npy").exists()
     build_index(folder, d, embed=False)
     assert not (d / "embeddings.npy").exists()
-    assert load_index(d)["modes"] == ("tfidf", "bm25")
+    assert load_index(d)["modes"] == ("tfidf", "bm25", "word2vec")

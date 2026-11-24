@@ -18,7 +18,7 @@ st.set_page_config(page_title="Moteur de recherche documentaire", layout="wide")
 
 MODE_LABELS = {"TF-IDF": "tfidf", "BM25": "bm25", "Sémantique": "semantic",
                "Hybride": "hybrid", "Word2vec (moyenne)": "word2vec"}
-MODE_PHASE = {"word2vec": 4}
+MODE_PHASE: dict[str, int] = {}
 FUSION_LABELS = {"Pondérée (α)": "weighted", "RRF (rangs)": "rrf"}
 FORMAT_LABELS = {"pdf": "PDF", "docx": "Word", "txt": "Texte", "html": "HTML", "csv": "CSV"}
 SUBJECT_LABELS = {"chemistry": "Chimie", "contemporary_world": "Monde contemporain",

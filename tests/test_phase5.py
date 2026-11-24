@@ -29,3 +29,38 @@ def test_ndcg():
 def test_has_relevant():
     assert metrics.has_relevant(QRELS)
     assert not metrics.has_relevant({"c": 0})
+
+
+# --- sampling and significance -----------------------------------------------------------
+
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+
+from eval import significance  # noqa: E402
+from eval.run_eval import sample_queries  # noqa: E402
+
+
+def test_sample_is_seeded_judged_and_ordered():
+    queries = [{"qid": f"q{i}"} for i in range(50)]
+    qrels = {f"q{i}": {"d": 1 if i % 5 else 0} for i in range(50)}   # every 5th unjudged
+    s1, s2 = sample_queries(queries, qrels, 10), sample_queries(queries, qrels, 10)
+    assert s1 == s2 and len(s1) == 10
+    assert all(int(q["qid"][1:]) % 5 for q in s1)
+    assert [q["qid"] for q in s1] == sorted((q["qid"] for q in s1), key=lambda x: int(x[1:]))
+    assert len(sample_queries(queries, qrels, 1000)) == 40
+
+
+def test_paired_bootstrap():
+    a = np.array([0.9, 0.8, 0.7, 0.9, 0.6] * 20)
+    p, lo, hi = significance.paired_bootstrap(a, a - 0.2)
+    assert p < 0.01 and lo == pytest.approx(0.2) and hi == pytest.approx(0.2)
+    p, lo, hi = significance.paired_bootstrap(a, a)
+    assert p == 1.0
+
+
+def test_compare_table():
+    rows = [{"qid": q, "system": s, "ndcg@10": v}
+            for q in range(30) for s, v in (("S3", 0.5), ("S2", 0.5 - 0.01 * (q % 3)))]
+    t = significance.compare(pd.DataFrame(rows), pairs=[("S3", "S2"), ("S9", "S2")])
+    assert list(t["comparison"]) == ["S3 vs S2"]
+    assert t["wins"].iat[0] == 20 and t["ties"].iat[0] == 10

@@ -190,3 +190,56 @@ def test_search_with_wordnet(tmp_path):
     assert r["query_lex"].startswith(plain["query_lex"])
     sem_free = search("développeur", mode="tfidf", wordnet=True, index_dir=tmp_path)
     assert sem_free["results"]
+
+
+# --- word2vec, S6 (optional, course Ch. 3) ---------------------------------------------
+
+import numpy as np  # noqa: E402
+
+from search import word2vec  # noqa: E402
+
+W2V_TEXTS = ["chat chien animal maison", "chat animal domestique", "chien animal maison jardin",
+             "fraction nombre calcul", "nombre calcul division fraction"] * 20
+
+
+@pytest.fixture(scope="module")
+def kv():
+    return word2vec.train_or_load(W2V_TEXTS)
+
+
+def test_w2v_vectors_are_normalized(kv):
+    v = word2vec.doc_vector(kv, "chat chien inconnu")
+    assert v.shape == (config.W2V_DIM,) and np.linalg.norm(v) == pytest.approx(1.0, abs=1e-5)
+    assert not word2vec.doc_vector(kv, "xyzwvut").any()      # no known word -> zero vector
+    idf = word2vec.idf_weights(W2V_TEXTS)
+    assert idf["jardin"] > idf["animal"]
+
+
+def test_w2v_search_and_neighbours(kv):
+    W = word2vec.doc_matrix(kv, W2V_TEXTS[:5])
+    hits = word2vec.search_w2v(word2vec.doc_vector(kv, "division fraction"), W, 5)
+    assert hits[0][0] in (3, 4)
+    assert word2vec.search_w2v(word2vec.doc_vector(kv, "xyzwvut"), W, 5) == []
+    mask = np.array([True, True, True, False, False])
+    assert all(r < 3 for r, _ in word2vec.search_w2v(word2vec.doc_vector(kv, "fraction"), W, 5, mask))
+    assert word2vec.neighbours(kv, "chat", 3) and word2vec.neighbours(kv, "xyzwvut") == []
+
+
+def test_w2v_tiny_corpus_has_no_vocabulary():
+    kv = word2vec.train_or_load(["un seul passage"])
+    assert len(kv.key_to_index) == 0
+    assert not word2vec.doc_vector(kv, "seul").any()
+
+
+def test_search_word2vec_mode(tmp_path):
+    s = build_index(CORPUS, tmp_path, embed=False)
+    assert s["word2vec"]["n"] == s["n_chunks"]
+    r = search("développeur python", mode="word2vec", index_dir=tmp_path)
+    assert r["results"] and r["mode"] == "word2vec"
+    # An index without w2v files (built before S6) gets them on first load.
+    for name in ("w2v.kv", "w2v_matrix.npy", "w2v.json"):
+        (tmp_path / name).unlink()
+    from search.engine import _INDEX_CACHE
+    _INDEX_CACHE.clear()
+    assert search("développeur python", mode="word2vec", index_dir=tmp_path)["results"]
+    assert (tmp_path / "w2v_matrix.npy").exists()

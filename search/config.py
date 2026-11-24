@@ -76,4 +76,8 @@ WORDNET_ORIGINAL_REPEAT = 2    # repeat original terms to keep them dominant
 W2V_DIM = 100
 W2V_WINDOW = 5
 W2V_MIN_COUNT = 2
+W2V_EPOCHS = 10                # small corpus: more passes than gensim's default 5
+W2V_WORKERS = 4
+W2V_SEED = 42
+W2V_IDF_WEIGHTED = True        # chunk/query vector = IDF-weighted mean (False: plain mean)
 W2V_PRETRAINED_PATH = None     # e.g. ROOT / "models" / "frwac.bin" to use pretrained vectors
